@@ -218,6 +218,36 @@ class LECaseMessage(Base):
     case: Mapped[LECase] = relationship(back_populates="messages")
 
 
+class LEOutcome(Base):
+    __tablename__ = "le_outcomes"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    case_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("le_cases.id"), index=True
+    )
+    outcome_type: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amount_recovered: Mapped[float | None] = mapped_column(Float, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    reported_by: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    operator_id: Mapped[str | None] = mapped_column(
+        String(40), ForeignKey("external_operators.id"), nullable=True, index=True
+    )
+    key_hash: Mapped[str] = mapped_column(String(80), index=True)
+    key_prefix: Mapped[str] = mapped_column(String(16))  # first chars for UI display
+    permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 # ---------------------------------------------------------------------------
 # Operator integration
 # ---------------------------------------------------------------------------
@@ -309,8 +339,10 @@ __all__ = [
     "LEAgency",
     "LECase",
     "LECaseMessage",
+    "LEOutcome",
     "ExternalOperator",
     "SharedFlag",
     "EvidencePackage",
     "EvidenceAccess",
+    "APIKey",
 ]

@@ -26,6 +26,8 @@ from api.routes import alerts as alerts_routes
 from api.routes import analytics as analytics_routes
 from api.routes import clusters as clusters_routes
 from api.routes import dashboard as dashboard_routes
+from api.routes import integration as integration_routes
+from api.routes import law_enforcement as law_enforcement_routes
 from api.routes import nodes as nodes_routes
 from api.routes import rules as rules_routes
 from api.routes import takedowns as takedowns_routes
@@ -117,6 +119,9 @@ def create_app() -> FastAPI:
     app.include_router(takedowns_routes.router)
     app.include_router(rules_routes.router)
     app.include_router(analytics_routes.router)
+    app.include_router(law_enforcement_routes.router)
+    app.include_router(integration_routes.router)
+    app.include_router(integration_routes.external_router)
     app.include_router(ws_feeds.router)
 
     # ---- root + health --------------------------------------------------
