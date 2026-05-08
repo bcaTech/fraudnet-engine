@@ -75,6 +75,26 @@ class Settings(BaseSettings):
     accept anonymous traffic. Login + token issuance always work; this only
     governs whether RBAC dependencies *block* unauthenticated callers."""
 
+    # ---- Custom webhook (rules action) ----------------------------------
+    webhook_hmac_secret: SecretStr = SecretStr("change-me-webhook-hmac-secret")
+    webhook_timeout_s: float = 5.0
+    webhook_max_retries: int = 3
+    webhook_allow_list: list[str] = Field(
+        default_factory=lambda: [
+            "https://hooks.fraudnet.local/",
+            "https://webhook.example.com/",
+            "http://localhost:",  # dev / tests
+        ]
+    )
+
+    # ---- CORS / parsing helpers -----------------------------------------
+    @field_validator("webhook_allow_list", mode="before")
+    @classmethod
+    def _split_allow_list(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
+
     # ---- Celery ----------------------------------------------------------
     celery_broker_url: str = "redis://redis:6379/1"
     celery_result_backend: str = "redis://redis:6379/2"

@@ -40,25 +40,101 @@ async def _unblock_cross_network(ctx: ActionContext) -> ActionResult:
 
 
 async def _notify_external_operator(ctx: ActionContext) -> ActionResult:
-    """Stub: real implementation enqueues an outbound shared-flag for the
-    operator integration pipeline. For now we just record the intent on
-    the graph node so the audit trail shows the rule fired."""
+    """Enqueue outbound shared-flag rows for the connected operator(s).
+
+    ``params.operator`` is either an operator id, the literal
+    ``"all_connected"`` (default), or omitted. The action writes one
+    :class:`db.models.SharedFlag` per matching connected operator with
+    ``direction='outbound'`` and applies the operator's per-field
+    masking rule. The integration delivery loop
+    (``tasks.periodic.process_outbound_integration``) flushes those
+    rows to the operator HTTP endpoints.
+    """
+
+    import hashlib
+    import uuid
+
+    from sqlalchemy import select
+
+    from db.models import ExternalOperator, SharedFlag
+    from db.session import get_async_session
+
+    operator_param = ctx.params.get("operator", "all_connected")
+    risk_score = float(ctx.params.get("risk_score", 0.85))
 
     client = get_neo4j_client()
-    operator = ctx.params.get("operator", "all_connected")
     rows = await client.execute_write(
         """
         MATCH (w:Wallet {wallet_id: $wallet_id})
         SET w.external_notify_pending = true,
             w.external_notify_target = $operator,
             w.external_notify_at = datetime()
-        RETURN w.wallet_id AS wallet_id
+        RETURN w.wallet_id AS wallet_id, w.msisdn AS msisdn
         """,
-        {"wallet_id": ctx.target, "operator": operator},
+        {"wallet_id": ctx.target, "operator": operator_param},
     )
     if not rows:
-        return ActionResult(ok=False, detail={"target": ctx.target}, error="wallet not found")
-    return ActionResult(ok=True, detail={"target": ctx.target, "operator": operator, "queued": True})
+        return ActionResult(
+            ok=False, detail={"target": ctx.target}, error="wallet not found"
+        )
+    msisdn = rows[0].get("msisdn") or ctx.target
+
+    flags_queued = 0
+    flag_ids: list[str] = []
+    async with get_async_session() as db:
+        if operator_param == "all_connected":
+            ops = (
+                await db.execute(
+                    select(ExternalOperator).where(
+                        ExternalOperator.status == "connected"
+                    )
+                )
+            ).scalars().all()
+        else:
+            single = (
+                await db.execute(
+                    select(ExternalOperator).where(
+                        ExternalOperator.id == operator_param
+                    )
+                )
+            ).scalar_one_or_none()
+            ops = [single] if single is not None else []
+        for op in ops:
+            mode = (op.masking_rules or {}).get("msisdn", "hash")
+            if mode == "clear":
+                masked = msisdn
+            elif mode == "partial" and len(msisdn) > 4:
+                masked = f"{msisdn[:2]}***{msisdn[-2:]}"
+            else:
+                masked = hashlib.sha256(msisdn.encode()).hexdigest()[:32]
+            flag = SharedFlag(
+                id=f"flag-{uuid.uuid4().hex[:12]}",
+                direction="outbound",
+                operator_id=op.id,
+                identifier_type="msisdn",
+                identifier_masked=masked,
+                identifier_hash=hashlib.sha256(msisdn.encode()).hexdigest(),
+                risk_score=risk_score,
+                context=(
+                    f"Rule {ctx.trigger.get('rule_id') or '?'} flagged "
+                    f"{ctx.target} for cross-network notification."
+                ),
+            )
+            db.add(flag)
+            flag_ids.append(flag.id)
+            flags_queued += 1
+        if flags_queued:
+            await db.commit()
+
+    return ActionResult(
+        ok=True,
+        detail={
+            "target": ctx.target,
+            "operator": operator_param,
+            "flags_queued": flags_queued,
+            "flag_ids": flag_ids,
+        },
+    )
 
 
 def register_all(reg: ActionRegistry) -> None:
