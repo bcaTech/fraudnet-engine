@@ -20,17 +20,12 @@ logger = get_logger(__name__)
 
 
 def _run_async(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-    finally:
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        except Exception:  # noqa: BLE001
-            pass
-        loop.close()
-        asyncio.set_event_loop(None)
+    """Shared sync→async bridge. Delegates to the canonical helper in
+    :mod:`tasks.periodic` so per-loop client teardown is centralised."""
+
+    from .periodic import _run_async as _shared_run_async
+
+    return _shared_run_async(coro)
 
 
 @app.task(name="tasks.mesh_tasks.expand_seed")

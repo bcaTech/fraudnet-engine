@@ -108,6 +108,10 @@ app.conf.beat_schedule = {
         "task": "tasks.periodic.law_enforcement_case_reminders",
         "schedule": crontab(hour=8, minute=0),
     },
+    "cleanup-stale-rule-state": {
+        "task": "tasks.periodic.cleanup_stale_rule_state",
+        "schedule": crontab(hour=3, minute=30),  # nightly
+    },
 }
 
 
