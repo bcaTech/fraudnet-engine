@@ -56,6 +56,20 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("api.startup", environment=settings.environment)
 
+    # Production guard: complain loudly if CORS_ORIGINS still has
+    # localhost entries — a common deploy-misconfiguration footgun.
+    if settings.environment == "production":
+        unsafe_origins = [
+            o for o in settings.cors_origins
+            if "localhost" in o or "127.0.0.1" in o or o == "*"
+        ]
+        if unsafe_origins:
+            logger.error(
+                "api.cors.unsafe_in_production",
+                origins=unsafe_origins,
+                hint="Set CORS_ORIGINS to the production frontend host(s).",
+            )
+
     client: Neo4jClient = get_neo4j_client()
     await client.connect()
 

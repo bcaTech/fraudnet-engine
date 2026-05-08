@@ -23,7 +23,10 @@ COPY . /app
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+# No image-level HEALTHCHECK. The image is reused by the API,
+# Celery worker/beat, and Kafka consumer services — they don't all
+# listen on :8000. Healthchecks are defined per-service in
+# docker-compose.yml so each gets the right probe (HTTP for the API,
+# disabled for the workers).
 
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
