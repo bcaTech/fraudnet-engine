@@ -10,11 +10,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 
+from api.auth.rbac import ROLE_ANALYST, require_role
 from api.dependencies import DBSessionDep
 from api.schemas import APIResponse, Meta, ok
+from api.websocket.publisher import CH_ALERTS, publish
 from db.models import Alert
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -117,7 +119,10 @@ async def list_alerts(
     )
 
 
-@router.post("/{alert_id}/acknowledge")
+@router.post(
+    "/{alert_id}/acknowledge",
+    dependencies=[Depends(require_role(ROLE_ANALYST))],
+)
 async def acknowledge_alert(
     alert_id: str,
     db: DBSessionDep,
@@ -137,11 +142,15 @@ async def acknowledge_alert(
         alert.acknowledged_by = "system"  # TODO: replace once auth lands.
         await db.commit()
         await db.refresh(alert)
+        await publish(CH_ALERTS, "alert.acknowledged", _alert_to_dict(alert))
 
     return ok(_alert_to_dict(alert))
 
 
-@router.post("/{alert_id}/dismiss")
+@router.post(
+    "/{alert_id}/dismiss",
+    dependencies=[Depends(require_role(ROLE_ANALYST))],
+)
 async def dismiss_alert(
     alert_id: str,
     db: DBSessionDep,
@@ -166,5 +175,6 @@ async def dismiss_alert(
     alert.extra = extra
     await db.commit()
     await db.refresh(alert)
+    await publish(CH_ALERTS, "alert.dismissed", _alert_to_dict(alert))
 
     return ok(_alert_to_dict(alert))

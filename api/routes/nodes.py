@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
+from api.auth.rbac import ROLE_INVESTIGATOR, require_role
 from api.dependencies import Neo4jDep
 from api.schemas import APIResponse, ok
+from api.websocket.publisher import CH_CLUSTER_UPDATES, publish
 from core.graph.queries import (
     FLAG_NODE,
     FREEZE_WALLET,
@@ -167,23 +169,44 @@ class FlagRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=200)
 
 
-@router.post("/wallet/{wallet_id}/freeze")
+@router.post(
+    "/wallet/{wallet_id}/freeze",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def freeze_wallet(wallet_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     rows = await neo4j.execute_write(FREEZE_WALLET, {"wallet_id": wallet_id})
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "wallet not found")
-    return ok(rows[0]["wallet"] or {})
+    wallet = rows[0]["wallet"] or {}
+    await publish(
+        CH_CLUSTER_UPDATES,
+        "wallet.frozen",
+        {"wallet_id": wallet_id, "cluster_id": wallet.get("cluster_id"), "wallet": wallet},
+    )
+    return ok(wallet)
 
 
-@router.post("/wallet/{wallet_id}/unfreeze")
+@router.post(
+    "/wallet/{wallet_id}/unfreeze",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def unfreeze_wallet(wallet_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     rows = await neo4j.execute_write(UNFREEZE_WALLET, {"wallet_id": wallet_id})
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "wallet not found")
-    return ok(rows[0]["wallet"] or {})
+    wallet = rows[0]["wallet"] or {}
+    await publish(
+        CH_CLUSTER_UPDATES,
+        "wallet.unfrozen",
+        {"wallet_id": wallet_id, "cluster_id": wallet.get("cluster_id"), "wallet": wallet},
+    )
+    return ok(wallet)
 
 
-@router.post("/{node_type}/{node_id}/flag")
+@router.post(
+    "/{node_type}/{node_id}/flag",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def flag_node(
     node_type: NodeType,
     node_id: str,
@@ -205,7 +228,10 @@ async def flag_node(
     )
 
 
-@router.post("/{node_type}/{node_id}/watchlist")
+@router.post(
+    "/{node_type}/{node_id}/watchlist",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def add_to_watchlist(
     node_type: NodeType,
     node_id: str,

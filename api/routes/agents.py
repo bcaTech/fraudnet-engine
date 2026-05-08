@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from api.auth.rbac import ROLE_INVESTIGATOR, require_role
 from api.dependencies import Neo4jDep
 from api.schemas import APIResponse, Meta, ok
 from core.graph.queries import GET_AGENT
@@ -230,7 +231,10 @@ async def cashout_patterns(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{agent_id}/suspend")
+@router.post(
+    "/{agent_id}/suspend",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def suspend_agent(agent_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     rows = await neo4j.execute_write(
         """
@@ -246,7 +250,10 @@ async def suspend_agent(agent_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str,
     return ok(rows[0]["agent"] or {})
 
 
-@router.post("/{agent_id}/warn")
+@router.post(
+    "/{agent_id}/warn",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def warn_agent(agent_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     rows = await neo4j.execute_write(
         """

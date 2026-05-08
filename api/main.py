@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
+from api.auth import routes as auth_routes
 from api.routes import agents as agents_routes
 from api.routes import alerts as alerts_routes
 from api.routes import analytics as analytics_routes
@@ -29,6 +30,11 @@ from api.routes import nodes as nodes_routes
 from api.routes import rules as rules_routes
 from api.routes import takedowns as takedowns_routes
 from api.schemas import APIResponse, ok
+from api.websocket import feeds as ws_feeds
+from api.websocket.bridge import RedisBridge
+from api.websocket.manager import get_manager as get_ws_manager
+from api.websocket.metrics_loop import MetricsPublisher
+from api.websocket.publisher import close_client as close_ws_publisher
 from config.logging import configure_logging, get_logger
 from config.settings import get_settings
 from core.graph.client import Neo4jClient, get_neo4j_client
@@ -40,7 +46,8 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Connect Neo4j, apply the graph schema, then yield."""
+    """Connect Neo4j, apply the graph schema, start the WS bridge + metrics
+    publisher, then yield."""
 
     configure_logging()
     settings = get_settings()
@@ -56,9 +63,23 @@ async def lifespan(app: FastAPI):
         raise
 
     app.state.neo4j = client
+
+    # ---- WebSocket plumbing ---------------------------------------------
+    ws_manager = get_ws_manager()
+    bridge = RedisBridge(ws_manager)
+    metrics_pub = MetricsPublisher()
+    await bridge.start()
+    await metrics_pub.start()
+    app.state.ws_manager = ws_manager
+    app.state.ws_bridge = bridge
+    app.state.ws_metrics = metrics_pub
+
     try:
         yield
     finally:
+        await metrics_pub.stop()
+        await bridge.stop()
+        await close_ws_publisher()
         await client.close()
         logger.info("api.shutdown")
 
@@ -87,6 +108,7 @@ def create_app() -> FastAPI:
     )
 
     # ---- routers ---------------------------------------------------------
+    app.include_router(auth_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(clusters_routes.router)
     app.include_router(nodes_routes.router)
@@ -95,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(takedowns_routes.router)
     app.include_router(rules_routes.router)
     app.include_router(analytics_routes.router)
+    app.include_router(ws_feeds.router)
 
     # ---- root + health --------------------------------------------------
     @app.get("/", include_in_schema=False)

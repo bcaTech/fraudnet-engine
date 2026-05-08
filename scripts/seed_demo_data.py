@@ -963,7 +963,7 @@ def _seed_users(session: Session, state: GraphState) -> None:
                 username=username,
                 email=email,
                 # Demo only — bcrypt hash of "demo123" generated once and pinned.
-                password_hash="$2b$12$JG2FDeUxwqbpLKaYflVjOOI1m1YCu8rLxoOFglI70GtMZEtlExSA2",
+                password_hash="$2b$12$qwIYMUN3L.1Zv.TNQFZKiOe23RGf3wkqVRxNNiyz6YzZjBI5EYqX.",
                 role=role,
                 last_login=_rand_dt(rng, days_back=14),
             )

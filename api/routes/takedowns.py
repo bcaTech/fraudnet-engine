@@ -12,13 +12,15 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from api.auth.rbac import ROLE_INVESTIGATOR, ROLE_SENIOR_INVESTIGATOR, require_role
 from api.dependencies import DBSessionDep, Neo4jDep
 from api.schemas import APIResponse, Meta, ok
+from api.websocket.publisher import CH_CLUSTER_UPDATES, publish
 from db.models import Takedown, TakedownStep
 
 router = APIRouter(prefix="/api/takedowns", tags=["takedowns"])
@@ -133,7 +135,11 @@ class TakedownInitiate(BaseModel):
     summary: str | None = Field(None, max_length=500)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
 async def initiate_takedown(
     payload: TakedownInitiate,
     db: DBSessionDep,
@@ -201,7 +207,18 @@ async def initiate_takedown(
             .options(selectinload(Takedown.steps))
         )
     ).scalar_one()
-    return ok(_td_to_dict(detail, include_steps=True))
+    payload = _td_to_dict(detail, include_steps=True)
+    await publish(
+        CH_CLUSTER_UPDATES,
+        "cluster.takedown_initiated",
+        {
+            "cluster_id": detail.cluster_id,
+            "takedown_id": detail.id,
+            "status": detail.status,
+            "summary": detail.summary,
+        },
+    )
+    return ok(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +227,10 @@ async def initiate_takedown(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{takedown_id}/approve")
+@router.post(
+    "/{takedown_id}/approve",
+    dependencies=[Depends(require_role(ROLE_SENIOR_INVESTIGATOR))],
+)
 async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     td = (
         await db.execute(select(Takedown).where(Takedown.id == takedown_id))

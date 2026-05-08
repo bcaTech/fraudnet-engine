@@ -1,16 +1,16 @@
-"""Scheduled (Celery beat) task stubs.
+"""Scheduled (Celery beat) tasks.
 
-Each task here is a placeholder that logs a structured heartbeat. They keep
-beat from raising ``KeyError`` while the real implementations land in
-``core/mesh``, ``rules/scheduler``, ``integration``, and ``law_enforcement``.
-
-When implementing the real version, import the engine module and call its
-async entry point via ``asyncio.run`` (Celery workers are sync by default).
+Most are still heartbeat stubs while the real implementations land in
+``core/mesh``, ``integration``, and ``law_enforcement``. The
+:func:`evaluate_scheduled_rules` task is wired to the real rules engine.
 """
 
 from __future__ import annotations
 
+import asyncio
+
 from config.logging import configure_logging, get_logger
+from rules.engine import evaluate_scheduled as run_scheduled_rules
 
 from .celery_app import app
 
@@ -21,6 +21,24 @@ logger = get_logger(__name__)
 def _heartbeat(name: str) -> dict[str, str]:
     logger.info("celery.beat.heartbeat", task=name, status="stub")
     return {"task": name, "status": "stub"}
+
+
+def _run_async(coro):
+    """Drive an async coroutine from a sync Celery task. We always create a
+    fresh loop because Celery worker pools recycle threads/processes and
+    we don't want to inherit a stale event loop."""
+
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:  # noqa: BLE001
+            pass
+        loop.close()
+        asyncio.set_event_loop(None)
 
 
 @app.task(name="tasks.periodic.apply_temporal_decay")
@@ -49,8 +67,22 @@ def campaign_detection() -> dict[str, str]:
 
 
 @app.task(name="tasks.periodic.evaluate_scheduled_rules")
-def evaluate_scheduled_rules() -> dict[str, str]:
-    return _heartbeat("evaluate_scheduled_rules")
+def evaluate_scheduled_rules() -> dict:
+    """Run every live, scheduled-mode rule against current graph state.
+
+    Wired to :func:`rules.engine.evaluate_scheduled` — no longer a stub.
+    Returns a stats dict (rules evaluated, matches, actions executed,
+    triggers written) so the result is surfaced in the Celery result
+    backend and operator logs.
+    """
+
+    try:
+        result = _run_async(run_scheduled_rules())
+        logger.info("rules.scheduled.task_complete", **result)
+        return result
+    except Exception as exc:  # noqa: BLE001 — Celery should record the failure
+        logger.error("rules.scheduled.task_error", error=str(exc))
+        raise
 
 
 @app.task(name="tasks.periodic.process_inbound_integration")
