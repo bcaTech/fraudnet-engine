@@ -419,3 +419,108 @@ async def totp_disable(
     await db.commit()
     await db.refresh(record)
     return ok(_user_to_dict(record))
+
+
+# ---------------------------------------------------------------------------
+# Frontend-compat: Supabase-shaped session + token refresh
+# ---------------------------------------------------------------------------
+
+
+def _supabase_session(
+    *,
+    user_payload: dict[str, Any],
+    access_token: str,
+    expires_at: datetime,
+) -> dict[str, Any]:
+    """Re-shape our session into the envelope Supabase clients expect.
+
+    Lets the frontend swap from Supabase Auth to our backend without
+    refactoring the bits that read ``session.user.id`` / ``access_token`` /
+    ``expires_at``.
+    """
+
+    expires_in = max(0, int((expires_at - datetime.now(UTC)).total_seconds()))
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in": expires_in,
+        "expires_at": int(expires_at.timestamp()),
+        # We don't issue refresh tokens (yet); /auth/refresh works off
+        # the current bearer. Surfacing it as the same value keeps the
+        # Supabase client happy.
+        "refresh_token": access_token,
+        "user": {
+            "id": user_payload["id"],
+            "email": user_payload.get("email"),
+            "role": user_payload.get("role"),
+            "user_metadata": {
+                "username": user_payload.get("username"),
+                "totp_enabled": user_payload.get("totp_enabled", False),
+            },
+            "app_metadata": {
+                "role": user_payload.get("role"),
+                "active": user_payload.get("active", True),
+            },
+            "created_at": user_payload.get("created_at"),
+            "last_sign_in_at": user_payload.get("last_login"),
+        },
+    }
+
+
+@router.get("/session")
+async def session(user: CurrentUser, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
+    """Return the current session in a Supabase-compatible shape so the
+    frontend can use ``data.session`` interchangeably.
+
+    Anonymous callers (``AUTH_REQUIRED=false`` dev mode) receive
+    ``{session: null}`` — matches Supabase's "signed-out" response so
+    UI code can fall through to login without special-casing dev.
+    """
+
+    if user.sub == "anon":
+        return ok({"session": None})
+
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
+    if record is None:
+        return ok({"session": None})
+
+    # Mint a fresh token whose expiry matches what /auth/refresh would
+    # produce — clients calling /session typically hold a token but
+    # want to know how long it's valid for.
+    token, exp = create_access_token(user_id=record.id, username=record.username, role=record.role)
+    return ok(
+        {
+            "session": _supabase_session(
+                user_payload=_user_to_dict(record),
+                access_token=token,
+                expires_at=exp,
+            )
+        }
+    )
+
+
+@router.post("/refresh")
+async def refresh(user: CurrentUser, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
+    """Issue a new access token to a caller holding a valid one.
+
+    Sliding-window refresh: the new token's expiry is full-length from
+    *now*, regardless of how much time was left on the old one. Because
+    we don't track refresh tokens separately, a stolen access token
+    can be silently extended — that's an accepted v1 trade-off; rotate
+    JWT_SECRET to invalidate every outstanding token if needed.
+    """
+
+    if user.sub == "anon":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "refresh requires an authenticated session")
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
+    if record is None or not record.active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user no longer active")
+
+    token, exp = create_access_token(user_id=record.id, username=record.username, role=record.role)
+    return ok(
+        _supabase_session(
+            user_payload=_user_to_dict(record),
+            access_token=token,
+            expires_at=exp,
+        )
+    )
