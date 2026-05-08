@@ -1,0 +1,248 @@
+name: fraudnet
+
+x-common-env: &common-env
+  NEO4J_URI: bolt://neo4j:7687
+  NEO4J_USER: neo4j
+  NEO4J_PASSWORD: ${NEO4J_PASSWORD:-fraudnet_dev_pw}
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  REDIS_URL: redis://redis:6379/0
+  DATABASE_URL: postgresql+asyncpg://fraudnet:${POSTGRES_PASSWORD:-fraudnet_dev_pw}@postgres:5432/fraudnet
+  DATABASE_URL_SYNC: postgresql://fraudnet:${POSTGRES_PASSWORD:-fraudnet_dev_pw}@postgres:5432/fraudnet
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-fraudnet}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-fraudnet_dev_pw}
+  MINIO_BUCKET: fraudnet-evidence
+  JWT_SECRET: ${JWT_SECRET:-please-change-me-in-prod-this-is-a-dev-only-default}
+  JWT_ALGORITHM: HS256
+  JWT_EXPIRE_MINUTES: 480
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+
+services:
+  neo4j:
+    image: neo4j:5.20-community
+    container_name: fraudnet-neo4j
+    ports:
+      - "7474:7474"   # HTTP / browser
+      - "7687:7687"   # Bolt
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-fraudnet_dev_pw}
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*,gds.*
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: fraudnet-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_OPTS: "-Dzookeeper.4lw.commands.whitelist=ruok,srvr"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: fraudnet-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"   # external listener
+      - "29092:29092" # host listener (for local tooling)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: fraudnet-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fraudnet-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: fraudnet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraudnet_dev_pw}
+      POSTGRES_DB: fraudnet
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fraudnet -d fraudnet"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    container_name: fraudnet-minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-fraudnet}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-fraudnet_dev_pw}
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+    container_name: fraudnet-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "${MINIO_ACCESS_KEY:-fraudnet}" "${MINIO_SECRET_KEY:-fraudnet_dev_pw}"
+        mc mb --ignore-existing local/fraudnet-evidence
+        mc anonymous set none local/fraudnet-evidence
+        echo "MinIO bucket fraudnet-evidence ready."
+    networks: [fraudnet]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraudnet-api
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+    volumes:
+      - ./:/app
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraudnet-worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+    volumes:
+      - ./:/app
+    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+    networks: [fraudnet]
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraudnet-beat
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+    volumes:
+      - ./:/app
+    command: ["celery", "-A", "tasks.celery_app", "beat", "--loglevel=info"]
+    networks: [fraudnet]
+    restart: unless-stopped
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-plugins:
+  zookeeper-data:
+  zookeeper-log:
+  kafka-data:
+  redis-data:
+  postgres-data:
+  minio-data:
+
+networks:
+  fraudnet:
+    driver: bridge
