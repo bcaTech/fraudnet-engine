@@ -71,3 +71,57 @@ def test_get_cluster_graph_returns_typed_payload(client: httpx.Client) -> None:
 def test_get_unknown_cluster_returns_404(client: httpx.Client) -> None:
     r = client.get("/api/clusters/CLUSTER-DOES-NOT-EXIST")
     assert r.status_code == 404
+
+
+def test_unknown_cluster_graph_returns_404(client: httpx.Client) -> None:
+    r = client.get("/api/clusters/CLUSTER-DOES-NOT-EXIST/graph")
+    assert r.status_code == 404
+
+
+def test_unknown_cluster_nodes_returns_404(client: httpx.Client) -> None:
+    r = client.get("/api/clusters/CLUSTER-DOES-NOT-EXIST/nodes")
+    # Cluster-nodes returns an empty list rather than 404 — verify
+    # the empty-data envelope shape so the frontend can rely on it.
+    body = r.json()
+    assert r.status_code == 200
+    assert body["data"] == []
+
+
+def test_freeze_unknown_wallet_returns_404(client: httpx.Client) -> None:
+    r = client.post("/api/nodes/wallet/MOMO-DOES-NOT-EXIST/freeze")
+    assert r.status_code == 404
+
+
+def test_initiate_takedown_for_unknown_cluster_returns_404(
+    client: httpx.Client,
+) -> None:
+    r = client.post(
+        "/api/takedowns",
+        json={"cluster_id": "CLUSTER-DOES-NOT-EXIST"},
+    )
+    assert r.status_code == 404
+
+
+def test_acknowledge_unknown_alert_returns_404(client: httpx.Client) -> None:
+    r = client.post("/api/alerts/alert-DOES-NOT-EXIST/acknowledge")
+    assert r.status_code == 404
+
+
+def test_complete_unknown_takedown_returns_404(client: httpx.Client) -> None:
+    r = client.post("/api/takedowns/td-DOES-NOT-EXIST/complete")
+    assert r.status_code == 404
+
+
+def test_evidence_download_for_takedown_without_evidence_404s(
+    client: httpx.Client,
+) -> None:
+    r = client.get("/api/takedowns/td-DOES-NOT-EXIST/evidence-package")
+    assert r.status_code == 404
+
+
+def test_external_flag_without_api_key_returns_401(client: httpx.Client) -> None:
+    r = client.post(
+        "/api/external/v1/flags",
+        json={"identifier_type": "msisdn", "identifier": "+233241000000"},
+    )
+    assert r.status_code == 401
