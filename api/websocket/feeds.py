@@ -1,24 +1,25 @@
 """WebSocket feed routes.
 
-Three feeds, each backed by a Redis pub/sub channel:
+Six feeds, mixing two transports:
 
-- ``/ws/alerts`` — alert lifecycle (new, acknowledged, dismissed)
-- ``/ws/cluster-updates`` — cluster status / confidence / member changes
-- ``/ws/metrics`` — dashboard metric snapshot every 5s
+- Redis Streams (durable, replayable): ``/ws/alerts``, ``/ws/cluster-
+  updates``, ``/ws/metrics``. Pass ``?since=<stream_id>`` on connect to
+  replay every entry posted since that id; the route XRANGE-replays
+  the gap then hands over to the bridge for live tail.
+- Redis pub/sub (ephemeral): ``/ws/rules``, ``/ws/integration``,
+  ``/ws/takedown/{id}``. No backfill — these aren't load-bearing for
+  reconnection.
 
-Each route just delegates to the shared :class:`ConnectionManager`. The
-:class:`~api.websocket.bridge.RedisBridge` does the actual broadcasting
-when messages arrive on the corresponding channel; the connection only
-needs to stay open and absorb whatever the bridge sends.
-
-The ``await ws.receive_text()`` loop blocks until the client disconnects,
-which is what FastAPI uses to detect closed connections. Any text the
-client sends is ignored — these are server-push feeds, not duplex.
+Each route delegates to the shared :class:`ConnectionManager`; the
+:class:`~api.websocket.bridge.RedisBridge` keeps broadcasting once the
+connection is registered. The ``await ws.receive_text()`` loop blocks
+until the client disconnects (FastAPI's standard pattern). Any
+inbound text is ignored — these are server-push feeds.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from config.logging import get_logger
 
@@ -29,6 +30,8 @@ from .publisher import (
     CH_INTEGRATION,
     CH_METRICS,
     CH_RULES,
+    STREAM_CHANNELS,
+    fetch_history,
     takedown_channel,
 )
 
@@ -38,14 +41,23 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["websocket"])
 
 
-async def _serve(channel: str, ws: WebSocket) -> None:
+async def _serve(channel: str, ws: WebSocket, *, since: str | None = None) -> None:
     manager = get_manager()
     await manager.connect(channel, ws)
     try:
-        # Send a tiny hello so clients can confirm the channel is live.
         await ws.send_json({"event": "hello", "data": {"channel": channel}})
+
+        # Stream-backed channels support replay: drain history first,
+        # then defer to the bridge for live tail. There's a small race
+        # where new entries may arrive between XRANGE and the bridge's
+        # next XREAD pass and be replayed twice; clients dedup by
+        # ``_stream_id``.
+        if since and channel in STREAM_CHANNELS:
+            history = await fetch_history(channel, since=since)
+            for entry in history:
+                await ws.send_json(entry)
+
         while True:
-            # Block until disconnect; any inbound text is ignored.
             await ws.receive_text()
     except WebSocketDisconnect:
         pass
@@ -55,19 +67,38 @@ async def _serve(channel: str, ws: WebSocket) -> None:
         await manager.disconnect(channel, ws)
 
 
+# ---------------------------------------------------------------------------
+# Stream-backed feeds (replay supported via ?since=)
+# ---------------------------------------------------------------------------
+
+
 @router.websocket("/ws/alerts")
-async def ws_alerts(websocket: WebSocket) -> None:
-    await _serve(CH_ALERTS, websocket)
+async def ws_alerts(
+    websocket: WebSocket,
+    since: str | None = Query(None, description="Stream id to resume from"),
+) -> None:
+    await _serve(CH_ALERTS, websocket, since=since)
 
 
 @router.websocket("/ws/cluster-updates")
-async def ws_cluster_updates(websocket: WebSocket) -> None:
-    await _serve(CH_CLUSTER_UPDATES, websocket)
+async def ws_cluster_updates(
+    websocket: WebSocket,
+    since: str | None = Query(None, description="Stream id to resume from"),
+) -> None:
+    await _serve(CH_CLUSTER_UPDATES, websocket, since=since)
 
 
 @router.websocket("/ws/metrics")
-async def ws_metrics(websocket: WebSocket) -> None:
-    await _serve(CH_METRICS, websocket)
+async def ws_metrics(
+    websocket: WebSocket,
+    since: str | None = Query(None, description="Stream id to resume from"),
+) -> None:
+    await _serve(CH_METRICS, websocket, since=since)
+
+
+# ---------------------------------------------------------------------------
+# Pub/sub-backed feeds (no replay)
+# ---------------------------------------------------------------------------
 
 
 @router.websocket("/ws/rules")
