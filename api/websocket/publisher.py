@@ -33,6 +33,17 @@ logger = get_logger(__name__)
 CH_ALERTS: str = "fraudnet.ws.alerts"
 CH_CLUSTER_UPDATES: str = "fraudnet.ws.cluster_updates"
 CH_METRICS: str = "fraudnet.ws.metrics"
+CH_RULES: str = "fraudnet.ws.rules"
+CH_INTEGRATION: str = "fraudnet.ws.integration"
+
+# Per-takedown channels share this prefix; the bridge psubscribes to
+# ``fraudnet.ws.takedown:*`` so any new takedown id is routed without
+# bridge restart.
+CH_TAKEDOWN_PREFIX: str = "fraudnet.ws.takedown:"
+
+
+def takedown_channel(takedown_id: str) -> str:
+    return f"{CH_TAKEDOWN_PREFIX}{takedown_id}"
 
 
 _client: redis_async.Redis | None = None

@@ -23,7 +23,14 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from config.logging import get_logger
 
 from .manager import get_manager
-from .publisher import CH_ALERTS, CH_CLUSTER_UPDATES, CH_METRICS
+from .publisher import (
+    CH_ALERTS,
+    CH_CLUSTER_UPDATES,
+    CH_INTEGRATION,
+    CH_METRICS,
+    CH_RULES,
+    takedown_channel,
+)
 
 logger = get_logger(__name__)
 
@@ -61,3 +68,27 @@ async def ws_cluster_updates(websocket: WebSocket) -> None:
 @router.websocket("/ws/metrics")
 async def ws_metrics(websocket: WebSocket) -> None:
     await _serve(CH_METRICS, websocket)
+
+
+@router.websocket("/ws/rules")
+async def ws_rules(websocket: WebSocket) -> None:
+    """Rule trigger events + shadow-mode log entries."""
+
+    await _serve(CH_RULES, websocket)
+
+
+@router.websocket("/ws/integration")
+async def ws_integration(websocket: WebSocket) -> None:
+    """Operator-integration events: inbound/outbound flag receipts,
+    operator status changes, health-check results."""
+
+    await _serve(CH_INTEGRATION, websocket)
+
+
+@router.websocket("/ws/takedown/{takedown_id}")
+async def ws_takedown(websocket: WebSocket, takedown_id: str) -> None:
+    """Live progress for a single takedown. Each connection scopes itself
+    to the per-takedown channel via the prefix; the bridge psubscribes
+    so dynamic channels work out of the box."""
+
+    await _serve(takedown_channel(takedown_id), websocket)

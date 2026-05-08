@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth.rbac import ROLE_ADMIN, ROLE_INVESTIGATOR, require_role
 from api.dependencies import DBSessionDep
 from api.schemas import APIResponse, Meta, ok
+from api.websocket.publisher import CH_INTEGRATION, publish
 from db.models import APIKey, ExternalOperator, SharedFlag
 
 router = APIRouter(prefix="/api/integration", tags=["integration"])
@@ -215,6 +216,11 @@ async def update_operator_config(
         op.status = payload.status
     await db.commit()
     await db.refresh(op)
+    await publish(
+        CH_INTEGRATION,
+        "operator.config_changed",
+        {"operator_id": op.id, "name": op.name, "status": op.status},
+    )
     return ok(_operator_to_dict(op))
 
 
@@ -496,6 +502,18 @@ async def external_post_flag(
     db.add(flag)
     await db.commit()
     await db.refresh(flag)
+    await publish(
+        CH_INTEGRATION,
+        "flag.inbound",
+        {
+            "flag_id": flag.id,
+            "operator_id": flag.operator_id,
+            "identifier_type": flag.identifier_type,
+            "identifier_masked": flag.identifier_masked,
+            "risk_score": flag.risk_score,
+            "context": flag.context,
+        },
+    )
     return ok(
         {"flag_id": flag.id, "received_at": flag.shared_at.isoformat(), "queued": True}
     )

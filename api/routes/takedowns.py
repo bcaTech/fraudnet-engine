@@ -21,7 +21,7 @@ from sqlalchemy.orm import selectinload
 from api.auth.rbac import ROLE_INVESTIGATOR, ROLE_SENIOR_INVESTIGATOR, require_role
 from api.dependencies import DBSessionDep, Neo4jDep
 from api.schemas import APIResponse, Meta, ok
-from api.websocket.publisher import CH_CLUSTER_UPDATES, publish
+from api.websocket.publisher import CH_CLUSTER_UPDATES, publish, takedown_channel
 from core.evidence.builder import build_for_cluster
 from db.models import EvidencePackage, Takedown, TakedownStep
 
@@ -250,6 +250,11 @@ async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[di
         td.approved_by = "system"
         await db.commit()
         await db.refresh(td)
+        await publish(
+            takedown_channel(td.id),
+            "takedown.approved",
+            {"takedown_id": td.id, "approved_at": td.approved_at.isoformat()},
+        )
     return ok(_td_to_dict(td))
 
 
@@ -288,6 +293,11 @@ async def complete_takedown(
             s.status = "completed"
             s.started_at = s.started_at or now
             s.completed_at = now
+            await publish(
+                takedown_channel(td.id),
+                "takedown.step_completed",
+                {"takedown_id": td.id, "step": s.step_type, "status": s.status},
+            )
     await db.commit()
     await db.refresh(td)
 
@@ -322,6 +332,18 @@ async def complete_takedown(
             "cluster_id": td.cluster_id,
             "takedown_id": td.id,
             "evidence_package_id": td.evidence_package_id,
+        },
+    )
+    await publish(
+        takedown_channel(td.id),
+        "takedown.completed",
+        {
+            "takedown_id": td.id,
+            "completed_at": td.completed_at.isoformat() if td.completed_at else None,
+            "evidence_package_id": td.evidence_package_id,
+            "wallets_frozen": td.wallets_frozen,
+            "sims_flagged": td.sims_flagged,
+            "agents_alerted": td.agents_alerted,
         },
     )
     return ok(_td_to_dict(td, include_steps=True))

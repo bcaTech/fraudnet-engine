@@ -283,6 +283,28 @@ async def _run_rule(
     stats.triggers_written += 1
     stats.by_rule[rule.id] = stats.by_rule.get(rule.id, 0) + 1
 
+    # Best-effort WS broadcast — never fails the rule run.
+    try:
+        from api.websocket.publisher import CH_RULES, publish
+
+        await publish(
+            CH_RULES,
+            "rule.triggered",
+            {
+                "rule_id": rule.id,
+                "rule_name": rule.name,
+                "node_type": target_type,
+                "node_id": target_id,
+                "outcome": "success" if overall_ok else "failed",
+                "actions": [
+                    {"type": a["type"], "ok": a["ok"]}
+                    for a in actions
+                ],
+            },
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Public entry points

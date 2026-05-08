@@ -26,21 +26,43 @@ from config.logging import get_logger
 from config.settings import get_settings
 
 from .manager import ConnectionManager
-from .publisher import CH_ALERTS, CH_CLUSTER_UPDATES, CH_METRICS
+from .publisher import (
+    CH_ALERTS,
+    CH_CLUSTER_UPDATES,
+    CH_INTEGRATION,
+    CH_METRICS,
+    CH_RULES,
+    CH_TAKEDOWN_PREFIX,
+)
 
 logger = get_logger(__name__)
 
 
-SUBSCRIBED_CHANNELS: tuple[str, ...] = (CH_ALERTS, CH_CLUSTER_UPDATES, CH_METRICS)
+SUBSCRIBED_CHANNELS: tuple[str, ...] = (
+    CH_ALERTS,
+    CH_CLUSTER_UPDATES,
+    CH_METRICS,
+    CH_RULES,
+    CH_INTEGRATION,
+)
+# Patterns for psubscribe. Per-takedown channels are dynamic — pattern
+# subscription means the bridge picks them up without restart.
+SUBSCRIBED_PATTERNS: tuple[str, ...] = (f"{CH_TAKEDOWN_PREFIX}*",)
 
 
 class RedisBridge:
     """Owns a Redis pub/sub subscription and fans incoming messages out
     to local WebSocket connections."""
 
-    def __init__(self, manager: ConnectionManager, channels: Iterable[str] | None = None) -> None:
+    def __init__(
+        self,
+        manager: ConnectionManager,
+        channels: Iterable[str] | None = None,
+        patterns: Iterable[str] | None = None,
+    ) -> None:
         self._manager = manager
         self._channels = tuple(channels) if channels is not None else SUBSCRIBED_CHANNELS
+        self._patterns = tuple(patterns) if patterns is not None else SUBSCRIBED_PATTERNS
         self._client: redis_async.Redis | None = None
         self._pubsub: redis_async.client.PubSub | None = None
         self._task: asyncio.Task[None] | None = None
@@ -50,9 +72,16 @@ class RedisBridge:
         settings = get_settings()
         self._client = redis_async.from_url(settings.redis_url, decode_responses=True)
         self._pubsub = self._client.pubsub()
-        await self._pubsub.subscribe(*self._channels)
+        if self._channels:
+            await self._pubsub.subscribe(*self._channels)
+        if self._patterns:
+            await self._pubsub.psubscribe(*self._patterns)
         self._task = asyncio.create_task(self._loop(), name="ws.redis_bridge")
-        logger.info("ws.bridge.started", channels=list(self._channels))
+        logger.info(
+            "ws.bridge.started",
+            channels=list(self._channels),
+            patterns=list(self._patterns),
+        )
 
     async def stop(self) -> None:
         self._stopped.set()
@@ -65,6 +94,7 @@ class RedisBridge:
         if self._pubsub is not None:
             try:
                 await self._pubsub.unsubscribe()
+                await self._pubsub.punsubscribe()
                 await self._pubsub.aclose()
             except Exception:  # noqa: BLE001
                 pass
@@ -85,6 +115,12 @@ class RedisBridge:
                 )
                 if message is None:
                     backoff = 0.5
+                    continue
+                # message["type"] is "message" for direct subs and
+                # "pmessage" for pattern subs. Both have the concrete
+                # channel under "channel".
+                msg_type = message.get("type")
+                if msg_type not in ("message", "pmessage"):
                     continue
                 channel = message.get("channel")
                 raw = message.get("data")
