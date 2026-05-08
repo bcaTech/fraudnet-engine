@@ -112,6 +112,10 @@ app.conf.beat_schedule = {
         "task": "tasks.periodic.cleanup_stale_rule_state",
         "schedule": crontab(hour=3, minute=30),  # nightly
     },
+    "refresh-campaigns-cache": {
+        "task": "tasks.periodic.refresh_campaigns_cache",
+        "schedule": schedule(run_every=15 * 60),  # every 15 min
+    },
 }
 
 

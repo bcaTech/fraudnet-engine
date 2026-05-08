@@ -29,6 +29,7 @@ from api.middleware.audit import AuditMiddleware
 from api.routes import agents as agents_routes
 from api.routes import alerts as alerts_routes
 from api.routes import analytics as analytics_routes
+from api.routes import campaigns as campaigns_routes
 from api.routes import clusters as clusters_routes
 from api.routes import dashboard as dashboard_routes
 from api.routes import integration as integration_routes
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     app.include_router(takedowns_routes.router)
     app.include_router(rules_routes.router)
     app.include_router(analytics_routes.router)
+    app.include_router(campaigns_routes.router)
     app.include_router(law_enforcement_routes.router)
     app.include_router(integration_routes.router)
     app.include_router(integration_routes.external_router)

@@ -476,6 +476,44 @@ def law_enforcement_case_reminders() -> dict[str, Any]:
         raise
 
 
+@app.task(name="tasks.periodic.refresh_campaigns_cache")
+def refresh_campaigns_cache() -> dict[str, Any]:
+    """Run campaign detection and cache the shaped list under
+    ``fraudnet:campaigns:cache:v1``. Beat schedule fires every 15 min —
+    slow enough to be cheap, fast enough that the NOC sees fresh data."""
+
+    async def _go() -> dict[str, Any]:
+        await _ensure_neo4j_connected()
+        from datetime import UTC
+        from datetime import datetime as _dt
+
+        from core.analytics.campaign import (
+            detect_campaigns,
+            shape_campaigns,
+            write_cache,
+        )
+
+        raw = await detect_campaigns()
+        payload: dict[str, Any] = {
+            "scanned_at": raw.get("scanned_at") or _dt.now(UTC).isoformat(),
+            "campaigns": shape_campaigns(raw),
+            "raw": raw,
+        }
+        await write_cache(payload)
+        return {
+            "scanned_at": payload["scanned_at"],
+            "campaigns_cached": len(payload["campaigns"]),
+        }
+
+    try:
+        result = _run_async(_go())
+        logger.info("celery.campaigns.refresh", **result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.error("celery.campaigns.refresh.error", error=str(exc))
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Cleanup task: prevent the rules engine from accumulating stale flags
 # ---------------------------------------------------------------------------

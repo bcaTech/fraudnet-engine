@@ -158,3 +158,135 @@ async def detect_campaigns() -> dict[str, Any]:
         "agent_cashout_bursts": await transaction_bursts_at_agent(client=client),
         "scanned_at": datetime.now(UTC).isoformat(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Cache + display helpers (used by both the /api/campaigns route and
+# the Celery refresh task). They live in core/ rather than api/ so the
+# Celery worker — whose forked workers can't reliably import api.* —
+# can call them directly without going through the route module.
+# ---------------------------------------------------------------------------
+
+
+import hashlib  # noqa: E402 — keep helpers grouped at the bottom
+import json  # noqa: E402
+
+import redis.asyncio as redis_async  # noqa: E402
+
+from config.settings import get_settings  # noqa: E402
+
+CAMPAIGNS_CACHE_KEY = "fraudnet:campaigns:cache:v1"
+CAMPAIGNS_CACHE_TTL_SECONDS = 30 * 60
+
+
+_redis: redis_async.Redis | None = None
+
+
+async def _campaigns_redis() -> redis_async.Redis:
+    global _redis
+    if _redis is None:
+        settings = get_settings()
+        _redis = redis_async.from_url(  # type: ignore[no-untyped-call]
+            settings.redis_url, decode_responses=True
+        )
+    return _redis
+
+
+async def write_cache(payload: dict[str, Any]) -> None:
+    client = await _campaigns_redis()
+    await client.set(
+        CAMPAIGNS_CACHE_KEY,
+        json.dumps(payload, default=str),
+        ex=CAMPAIGNS_CACHE_TTL_SECONDS,
+    )
+
+
+async def read_cache() -> dict[str, Any] | None:
+    client = await _campaigns_redis()
+    raw = await client.get(CAMPAIGNS_CACHE_KEY)
+    if not raw:
+        return None
+    try:
+        result: dict[str, Any] = json.loads(raw)
+        return result
+    except json.JSONDecodeError:
+        return None
+
+
+def _campaign_id(kind: str, *signature: str | int | None) -> str:
+    body = f"{kind}|" + "|".join("" if s is None else str(s) for s in signature)
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    return f"camp-{kind}-{digest}"
+
+
+def _severity_from_count(count: Any) -> str:
+    try:
+        n = int(count or 0)
+    except (TypeError, ValueError):
+        return "low"
+    if n >= 30:
+        return "critical"
+    if n >= 15:
+        return "high"
+    if n >= 8:
+        return "medium"
+    return "low"
+
+
+def shape_campaigns(detection: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten the per-kind detection output into a uniform list."""
+
+    out: list[dict[str, Any]] = []
+    for sim in detection.get("sim_bursts") or []:
+        out.append(
+            {
+                "id": _campaign_id("sim", sim.get("bucket")),
+                "kind": "sim_registration_burst",
+                "severity": _severity_from_count(sim.get("sim_count")),
+                "bucket": sim.get("bucket"),
+                "summary": f"{sim.get('sim_count', 0)} SIMs registered in the same hour",
+                "detail": {
+                    "sample_imsis": sim.get("sample_imsis") or [],
+                    "sim_count": sim.get("sim_count"),
+                },
+            }
+        )
+    for wallet in detection.get("wallet_bursts") or []:
+        out.append(
+            {
+                "id": _campaign_id("wallet", wallet.get("bucket"), wallet.get("kyc_tier")),
+                "kind": "wallet_activation_burst",
+                "severity": _severity_from_count(wallet.get("wallet_count")),
+                "bucket": wallet.get("bucket"),
+                "summary": (
+                    f"{wallet.get('wallet_count', 0)} wallets activated in the "
+                    f"same window (KYC tier {wallet.get('kyc_tier')})"
+                ),
+                "detail": {
+                    "kyc_tier": wallet.get("kyc_tier"),
+                    "sample_wallets": wallet.get("sample_wallets") or [],
+                    "wallet_count": wallet.get("wallet_count"),
+                },
+            }
+        )
+    for agent in detection.get("agent_cashout_bursts") or []:
+        out.append(
+            {
+                "id": _campaign_id("agent", agent.get("agent_id"), agent.get("bucket")),
+                "kind": "agent_cashout_burst",
+                "severity": _severity_from_count(agent.get("sender_count")),
+                "bucket": agent.get("bucket"),
+                "summary": (
+                    f"{agent.get('sender_count', 0)} distinct senders cashed out at agent "
+                    f"{agent.get('agent_id')} ({agent.get('area') or '?'})"
+                ),
+                "detail": {
+                    "agent_id": agent.get("agent_id"),
+                    "area": agent.get("area"),
+                    "sample_senders": agent.get("sample_senders") or [],
+                    "sender_count": agent.get("sender_count"),
+                },
+            }
+        )
+    out.sort(key=lambda c: str(c.get("bucket") or ""), reverse=True)
+    return out
