@@ -64,7 +64,7 @@ UPSERT_CLUSTER: Final[str] = """
 MERGE (c:Cluster {cluster_id: $cluster_id})
 SET c.name = coalesce($name, c.name),
     c.seed_type = $seed_type,
-    c.seed_date = $seed_date,
+    c.seed_date = datetime($seed_date),
     c.seed_node_id = $seed_node_id,
     c.node_count = $node_count,
     c.confidence_score = $confidence_score,
