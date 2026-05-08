@@ -23,6 +23,8 @@ from api.dependencies import DBSessionDep, Neo4jDep
 from api.schemas import APIResponse, Meta, ok
 from api.websocket.publisher import CH_CLUSTER_UPDATES, publish, takedown_channel
 from core.evidence.builder import build_for_cluster
+from core.takedown.executor import execute as execute_takedown
+from core.takedown.readiness import assess as assess_readiness
 from db.models import EvidencePackage, Takedown, TakedownStep
 
 router = APIRouter(prefix="/api/takedowns", tags=["takedowns"])
@@ -251,83 +253,74 @@ async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[di
 async def complete_takedown(
     takedown_id: str, db: DBSessionDep, neo4j: Neo4jDep
 ) -> APIResponse[dict[str, Any]]:
-    """Mark a takedown as completed and auto-generate the evidence package.
+    """Run every pending step on the takedown.
 
-    Marks every pending step as completed, sets ``completed_at``, then
-    builds the evidence pack via ``core.evidence.builder``. The pack is
-    stored on MinIO (or local fallback) and an ``EvidencePackage`` row is
-    written. The takedown is updated with ``evidence_package_id`` and the
-    cluster is tagged ``status='takedown_complete'``.
+    Delegates to :func:`core.takedown.executor.execute`, which calls
+    the matching actuator for each step (freeze wallets, flag SIMs,
+    alert agents, trace restitution candidates, build evidence
+    package), records the per-step result on
+    ``TakedownStep.detail``, and finalises the takedown when no
+    critical step has failed. Idempotent: re-calling on a completed
+    takedown is a no-op.
     """
 
-    stmt = select(Takedown).where(Takedown.id == takedown_id).options(selectinload(Takedown.steps))
-    td = (await db.execute(stmt)).scalar_one_or_none()
-    if td is None:
+    pre = (
+        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
+    ).scalar_one_or_none()
+    if pre is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
-    if td.status == "completed":
-        return ok(_td_to_dict(td, include_steps=True))
 
-    now = datetime.now(UTC)
-    td.status = "completed"
-    td.completed_at = now
-    for s in td.steps:
-        if s.status not in ("completed", "failed"):
-            s.status = "completed"
-            s.started_at = s.started_at or now
-            s.completed_at = now
-            await publish(
-                takedown_channel(td.id),
-                "takedown.step_completed",
-                {"takedown_id": td.id, "step": s.step_type, "status": s.status},
-            )
-    await db.commit()
-    await db.refresh(td)
-
-    # Build the evidence package. Bubble up any failure as 500 so the
-    # caller can see the error.
     try:
-        pkg = await build_for_cluster(
-            td.cluster_id,
-            takedown_id=td.id,
-            generated_by="system",
-        )
-        td.evidence_package_id = pkg.id
-        await db.commit()
-        await db.refresh(td)
+        outcome = await execute_takedown(takedown_id, db, client=neo4j)
     except Exception as exc:  # noqa: BLE001 — surface to caller
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            f"evidence package generation failed: {exc}",
+            f"takedown execution failed: {exc}",
         ) from exc
 
-    await neo4j.execute_write(
-        """
-        MATCH (c:Cluster {cluster_id: $cluster_id})
-        SET c.status = 'takedown_complete'
-        """,
-        {"cluster_id": td.cluster_id},
+    # Re-fetch the takedown with steps for the response payload.
+    stmt = (
+        select(Takedown)
+        .where(Takedown.id == takedown_id)
+        .options(selectinload(Takedown.steps))
     )
-    await publish(
-        CH_CLUSTER_UPDATES,
-        "cluster.takedown_complete",
-        {
-            "cluster_id": td.cluster_id,
-            "takedown_id": td.id,
-            "evidence_package_id": td.evidence_package_id,
-        },
-    )
-    await publish(
-        takedown_channel(td.id),
-        "takedown.completed",
-        {
-            "takedown_id": td.id,
-            "completed_at": td.completed_at.isoformat() if td.completed_at else None,
-            "evidence_package_id": td.evidence_package_id,
-            "wallets_frozen": td.wallets_frozen,
-            "sims_flagged": td.sims_flagged,
-            "agents_alerted": td.agents_alerted,
-        },
-    )
+    td = (await db.execute(stmt)).scalar_one()
+
+    # Broadcast per-step + final result to the WS feeds.
+    for step in outcome.get("steps") or []:
+        await publish(
+            takedown_channel(td.id),
+            "takedown.step_completed" if step.get("ok") else "takedown.step_failed",
+            {
+                "takedown_id": td.id,
+                "step": step.get("step"),
+                "ok": step.get("ok"),
+                "detail": step.get("detail") if step.get("ok") else None,
+                "error": step.get("error") if not step.get("ok") else None,
+            },
+        )
+    if td.status == "completed":
+        await publish(
+            CH_CLUSTER_UPDATES,
+            "cluster.takedown_complete",
+            {
+                "cluster_id": td.cluster_id,
+                "takedown_id": td.id,
+                "evidence_package_id": td.evidence_package_id,
+            },
+        )
+        await publish(
+            takedown_channel(td.id),
+            "takedown.completed",
+            {
+                "takedown_id": td.id,
+                "completed_at": td.completed_at.isoformat() if td.completed_at else None,
+                "evidence_package_id": td.evidence_package_id,
+                "wallets_frozen": td.wallets_frozen,
+                "sims_flagged": td.sims_flagged,
+                "agents_alerted": td.agents_alerted,
+            },
+        )
     return ok(_td_to_dict(td, include_steps=True))
 
 
@@ -407,54 +400,30 @@ async def _fetch_evidence_bytes(pkg: EvidencePackage) -> bytes:
 async def takedown_readiness(
     takedown_id: str, db: DBSessionDep, neo4j: Neo4jDep
 ) -> APIResponse[dict[str, Any]]:
-    """Stub readiness check that surfaces the cluster's confidence + size
-    plus simple heuristics. The real assessment lives in
-    ``core.takedown.readiness``."""
+    """Pre-takedown readiness assessment.
 
-    td = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
+    Delegates to :func:`core.takedown.readiness.assess`, which runs
+    six checks against the cluster's graph state (confidence, member
+    count, linked agents, unfrozen wallets, fund-flow evidence) and
+    returns a normalised score plus per-check detail.
+    """
+
+    td = (
+        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
+    ).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
 
-    rows = await neo4j.execute_read(
-        """
-        MATCH (c:Cluster {cluster_id: $cluster_id})
-        OPTIONAL MATCH (n)-[:BELONGS_TO]->(c)
-        WITH c, count(DISTINCT n) AS members
-        OPTIONAL MATCH (a:Agent)-[:LINKED_TO]->(c)
-        WITH c, members, count(DISTINCT a) AS linked_agents
-        RETURN c.confidence_score AS confidence,
-               c.estimated_fraud_value AS estimated_fraud_value,
-               members,
-               linked_agents
-        """,
-        {"cluster_id": td.cluster_id},
-    )
-    if not rows:
-        return ok(
-            {
-                "ready": False,
-                "score": 0.0,
-                "checks": [{"name": "cluster_exists", "ok": False}],
-            }
-        )
-    r = rows[0]
-    confidence = float(r.get("confidence") or 0.0)
-    members = int(r.get("members") or 0)
-    linked_agents = int(r.get("linked_agents") or 0)
-
-    checks = [
-        {"name": "confidence_above_0_70", "ok": confidence >= 0.70, "value": confidence},
-        {"name": "members_above_4", "ok": members >= 4, "value": members},
-        {"name": "linked_agents_present", "ok": linked_agents >= 1, "value": linked_agents},
-    ]
-    score = sum(1 for c in checks if c["ok"]) / len(checks)
+    report = await assess_readiness(td.cluster_id, client=neo4j)
     return ok(
         {
             "takedown_id": takedown_id,
-            "cluster_id": td.cluster_id,
-            "ready": score >= 0.66,
-            "score": round(score, 2),
-            "checks": checks,
-            "estimated_fraud_value": float(r.get("estimated_fraud_value") or 0.0),
+            "cluster_id": report.cluster_id,
+            "ready": report.ready,
+            "score": report.score,
+            "checks": [
+                {"name": ch.name, "ok": ch.ok, **ch.detail} for ch in report.checks
+            ],
+            "estimated_fraud_value": report.estimated_fraud_value,
         }
     )
