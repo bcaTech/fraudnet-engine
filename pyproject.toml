@@ -46,6 +46,10 @@ dependencies = [
     # PDF generation (evidence packages)
     "reportlab>=4.0,<5",
 
+    # TOTP two-factor auth
+    "pyotp>=2.9,<3",
+    "qrcode[pil]>=7.4,<9",
+
     # ML / graph analytics
     "networkx>=3.3,<4",
     "scikit-learn>=1.5,<2",

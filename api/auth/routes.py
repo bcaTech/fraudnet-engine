@@ -39,6 +39,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=80)
     password: str = Field(..., min_length=1, max_length=200)
+    # Optional six-digit TOTP code; required when the user has totp_enabled.
+    totp_code: str | None = Field(None, pattern=r"^\d{6}$")
 
 
 class TokenResponse(BaseModel):
@@ -62,6 +64,7 @@ def _user_to_dict(u: User) -> dict[str, Any]:
         "email": u.email,
         "role": u.role,
         "active": u.active,
+        "totp_enabled": u.totp_enabled,
         "created_at": u.created_at.isoformat() if u.created_at else None,
         "last_login": u.last_login.isoformat() if u.last_login else None,
     }
@@ -79,6 +82,31 @@ async def login(payload: LoginRequest, db: DBSessionDep) -> APIResponse[TokenRes
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+
+    # Second factor: require TOTP if the user enabled it. The 401 body
+    # carries totp_required=true so the frontend can pivot to its TOTP
+    # prompt screen without re-entering the password.
+    if user.totp_enabled:
+        if not payload.totp_code:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "totp_required",
+                    "totp_required": True,
+                    "message": "TOTP code required for this user",
+                },
+            )
+        from .totp import verify as totp_verify
+
+        if not user.totp_secret or not totp_verify(user.totp_secret, payload.totp_code):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "totp_invalid",
+                    "totp_required": True,
+                    "message": "TOTP code is invalid",
+                },
+            )
 
     # Opportunistic rehash if scheme parameters changed.
     if needs_rehash(user.password_hash):
@@ -267,3 +295,127 @@ async def step_up(user: CurrentUser) -> APIResponse[dict[str, Any]]:
             ),
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# TOTP — two-factor authentication
+# ---------------------------------------------------------------------------
+
+
+class TOTPSetupResponse(BaseModel):
+    secret: str  # base32, shown once so the user can paste into a backup
+    provisioning_uri: str
+    qr_png_base64: str
+    issuer: str = "FraudNet"
+
+
+class TOTPCodeRequest(BaseModel):
+    code: str = Field(..., pattern=r"^\d{6}$")
+
+
+@router.post("/totp/setup")
+async def totp_setup(user: CurrentUser, db: DBSessionDep) -> APIResponse[TOTPSetupResponse]:
+    """Mint a fresh TOTP secret for the calling user.
+
+    The secret is stored encrypted under ``users.totp_secret`` but the
+    *plaintext* is returned exactly once in the response so the user
+    can paste it into their authenticator app or save it as a backup.
+    ``totp_enabled`` does NOT flip until :func:`totp_verify` succeeds —
+    setup alone shouldn't lock anyone out of login.
+    """
+
+    from .totp import generate_secret, provisioning_uri, qr_png_base64, store_secret
+
+    if user.sub == "anon":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "TOTP setup requires authentication")
+
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+
+    secret = generate_secret()
+    record.totp_secret = store_secret(secret)
+    record.totp_enabled = False  # require verify before activating
+    await db.commit()
+
+    uri = provisioning_uri(secret=secret, account=record.email or record.username)
+    return ok(
+        TOTPSetupResponse(
+            secret=secret,
+            provisioning_uri=uri,
+            qr_png_base64=qr_png_base64(uri),
+        )
+    )
+
+
+@router.post("/totp/verify")
+async def totp_verify_endpoint(
+    payload: TOTPCodeRequest, user: CurrentUser, db: DBSessionDep
+) -> APIResponse[dict[str, Any]]:
+    """Verify a code against the stored secret. On success, flips
+    ``totp_enabled=True`` so the next login requires the second
+    factor."""
+
+    from .totp import verify as totp_verify
+
+    if user.sub == "anon":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "TOTP verify requires authentication")
+
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
+    if record is None or not record.totp_secret:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "TOTP not initialised — call /auth/totp/setup first",
+        )
+    if not totp_verify(record.totp_secret, payload.code):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid TOTP code")
+
+    record.totp_enabled = True
+    await db.commit()
+    await db.refresh(record)
+    return ok(_user_to_dict(record))
+
+
+@router.post("/totp/validate")
+async def totp_validate(
+    payload: TOTPCodeRequest, user: CurrentUser, db: DBSessionDep
+) -> APIResponse[dict[str, Any]]:
+    """Validate a code without changing state. Useful for the frontend
+    to challenge an existing session before a high-risk action.
+    Returns ``{valid: true|false}`` rather than 4xx so the UI can
+    re-prompt without hitting the auth-error path."""
+
+    from .totp import verify as totp_verify
+
+    if user.sub == "anon":
+        return ok({"valid": False, "reason": "anonymous"})
+
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
+    if record is None or not record.totp_enabled or not record.totp_secret:
+        return ok({"valid": False, "reason": "totp_not_enabled"})
+    return ok({"valid": totp_verify(record.totp_secret, payload.code)})
+
+
+@router.post("/totp/disable")
+async def totp_disable(
+    payload: TOTPCodeRequest, user: CurrentUser, db: DBSessionDep
+) -> APIResponse[dict[str, Any]]:
+    """Disable TOTP. Requires a current valid code so an attacker with
+    a session token can't drop the second factor without the device."""
+
+    from .totp import verify as totp_verify
+
+    if user.sub == "anon":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "TOTP disable requires authentication")
+
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
+    if record is None or not record.totp_secret or not record.totp_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "TOTP not enabled")
+    if not totp_verify(record.totp_secret, payload.code):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid TOTP code")
+
+    record.totp_enabled = False
+    record.totp_secret = None
+    await db.commit()
+    await db.refresh(record)
+    return ok(_user_to_dict(record))

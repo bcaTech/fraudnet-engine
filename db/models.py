@@ -52,6 +52,11 @@ class User(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # TOTP: secret stored encrypted at rest. totp_enabled flips to True
+    # only after a successful verify, so admins can't lock users out by
+    # creating a row with totp_enabled=True but no working secret.
+    totp_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 # ---------------------------------------------------------------------------

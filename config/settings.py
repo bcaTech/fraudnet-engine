@@ -72,6 +72,19 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 480
     auth_required: bool = False
     run_migrations_on_startup: bool = True
+
+    # Field-level encryption (TOTP secrets, PII in audit logs).
+    # Default key is a stable dev placeholder so the seeder + tests can
+    # run without configuration. Production MUST override via env.
+    encryption_key: SecretStr = SecretStr(
+        "Z90sT9q7y_5TfQ8XB-hO2YFqXk0g6r-RzJC-zZb-aQE="  # 32-byte url-safe base64
+    )
+
+    # Data retention policies (days). Daily Celery task purges rows
+    # past these thresholds.
+    audit_retention_days: int = 730
+    alert_retention_days: int = 365
+    trigger_retention_days: int = 180
     """When False (default in dev), routes that would require auth still
     accept anonymous traffic. Login + token issuance always work; this only
     governs whether RBAC dependencies *block* unauthenticated callers."""
