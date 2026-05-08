@@ -13,15 +13,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import selectinload
 
 from api.auth.rbac import ROLE_INVESTIGATOR, ROLE_SENIOR_INVESTIGATOR, require_role
 from api.dependencies import DBSessionDep, Neo4jDep
 from api.schemas import APIResponse, Meta, ok
 from api.websocket.publisher import CH_CLUSTER_UPDATES, publish
-from db.models import Takedown, TakedownStep
+from core.evidence.builder import build_for_cluster
+from db.models import EvidencePackage, Takedown, TakedownStep
 
 router = APIRouter(prefix="/api/takedowns", tags=["takedowns"])
 
@@ -249,6 +251,160 @@ async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[di
         await db.commit()
         await db.refresh(td)
     return ok(_td_to_dict(td))
+
+
+@router.post(
+    "/{takedown_id}/complete",
+    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
+)
+async def complete_takedown(
+    takedown_id: str, db: DBSessionDep, neo4j: Neo4jDep
+) -> APIResponse[dict[str, Any]]:
+    """Mark a takedown as completed and auto-generate the evidence package.
+
+    Marks every pending step as completed, sets ``completed_at``, then
+    builds the evidence pack via ``core.evidence.builder``. The pack is
+    stored on MinIO (or local fallback) and an ``EvidencePackage`` row is
+    written. The takedown is updated with ``evidence_package_id`` and the
+    cluster is tagged ``status='takedown_complete'``.
+    """
+
+    stmt = (
+        select(Takedown)
+        .where(Takedown.id == takedown_id)
+        .options(selectinload(Takedown.steps))
+    )
+    td = (await db.execute(stmt)).scalar_one_or_none()
+    if td is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
+    if td.status == "completed":
+        return ok(_td_to_dict(td, include_steps=True))
+
+    now = datetime.now(timezone.utc)
+    td.status = "completed"
+    td.completed_at = now
+    for s in td.steps:
+        if s.status not in ("completed", "failed"):
+            s.status = "completed"
+            s.started_at = s.started_at or now
+            s.completed_at = now
+    await db.commit()
+    await db.refresh(td)
+
+    # Build the evidence package. Bubble up any failure as 500 so the
+    # caller can see the error.
+    try:
+        pkg = await build_for_cluster(
+            td.cluster_id,
+            takedown_id=td.id,
+            generated_by="system",
+        )
+        td.evidence_package_id = pkg.id
+        await db.commit()
+        await db.refresh(td)
+    except Exception as exc:  # noqa: BLE001 — surface to caller
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"evidence package generation failed: {exc}",
+        ) from exc
+
+    await neo4j.execute_write(
+        """
+        MATCH (c:Cluster {cluster_id: $cluster_id})
+        SET c.status = 'takedown_complete'
+        """,
+        {"cluster_id": td.cluster_id},
+    )
+    await publish(
+        CH_CLUSTER_UPDATES,
+        "cluster.takedown_complete",
+        {
+            "cluster_id": td.cluster_id,
+            "takedown_id": td.id,
+            "evidence_package_id": td.evidence_package_id,
+        },
+    )
+    return ok(_td_to_dict(td, include_steps=True))
+
+
+@router.get("/{takedown_id}/evidence-package")
+async def download_evidence_package(
+    takedown_id: str, db: DBSessionDep
+) -> StreamingResponse:
+    """Stream the latest evidence-package PDF for a takedown."""
+
+    td = (
+        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
+    ).scalar_one_or_none()
+    if td is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
+
+    pkg = (
+        await db.execute(
+            select(EvidencePackage)
+            .where(EvidencePackage.takedown_id == takedown_id)
+            .order_by(desc(EvidencePackage.version))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "no evidence package for this takedown"
+        )
+
+    # Pull bytes out of MinIO. file_path is ``s3://bucket/key`` or
+    # ``local://key`` when MinIO was unavailable at build time.
+    pdf_bytes = await _fetch_evidence_bytes(pkg)
+    headers = {
+        "Content-Disposition": f'attachment; filename="evidence-{pkg.id}.pdf"',
+        "X-Evidence-Hash": pkg.file_hash,
+        "X-Evidence-Version": str(pkg.version),
+    }
+    return StreamingResponse(
+        iter([pdf_bytes]), media_type="application/pdf", headers=headers
+    )
+
+
+async def _fetch_evidence_bytes(pkg: EvidencePackage) -> bytes:
+    """Resolve a stored evidence package back into raw bytes."""
+
+    if pkg.file_path.startswith("s3://"):
+        from minio import Minio
+
+        from config.settings import get_settings
+
+        s = get_settings()
+        client = Minio(
+            s.minio_endpoint,
+            access_key=s.minio_access_key,
+            secret_key=s.minio_secret_key.get_secret_value(),
+            secure=s.minio_secure,
+        )
+        # ``s3://bucket/key/with/slashes``
+        without_scheme = pkg.file_path[len("s3://"):]
+        bucket, _, key = without_scheme.partition("/")
+        try:
+            response = client.get_object(bucket, key)
+            try:
+                return response.read()
+            finally:
+                response.close()
+                response.release_conn()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"failed to fetch evidence package from MinIO: {exc}",
+            ) from exc
+
+    # Local fallback: rebuild on demand. The hash stored at build time
+    # matches the original payload, so a rebuild may produce a fresh
+    # hash if state has shifted — that's an acceptable trade-off in dev.
+    from core.evidence.builder import _gather  # noqa: PLC0415
+    from core.evidence.export import render_pdf  # noqa: PLC0415
+
+    payload = await _gather(pkg.cluster_id)
+    pdf_bytes, _ = render_pdf(payload)
+    return pdf_bytes
 
 
 @router.get("/{takedown_id}/readiness")

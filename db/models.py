@@ -260,6 +260,44 @@ class SharedFlag(Base):
     actioned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+# ---------------------------------------------------------------------------
+# Evidence
+# ---------------------------------------------------------------------------
+
+
+class EvidencePackage(Base):
+    __tablename__ = "evidence_packages"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    cluster_id: Mapped[str] = mapped_column(String(64), index=True)
+    case_id: Mapped[str | None] = mapped_column(
+        String(40), ForeignKey("le_cases.id"), nullable=True, index=True
+    )
+    takedown_id: Mapped[str | None] = mapped_column(
+        String(40), ForeignKey("takedowns.id"), nullable=True, index=True
+    )
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    generated_by: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    file_hash: Mapped[str] = mapped_column(String(80))
+    file_path: Mapped[str] = mapped_column(String(255))
+    page_count: Mapped[int] = mapped_column(Integer, default=0)
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class EvidenceAccess(Base):
+    __tablename__ = "evidence_access"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    package_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("evidence_packages.id"), index=True
+    )
+    accessed_by: Mapped[str] = mapped_column(String(40))
+    accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    user_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 __all__ = [
     "Base",
     "User",
@@ -273,4 +311,6 @@ __all__ = [
     "LECaseMessage",
     "ExternalOperator",
     "SharedFlag",
+    "EvidencePackage",
+    "EvidenceAccess",
 ]
