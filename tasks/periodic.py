@@ -47,8 +47,16 @@ def apply_temporal_decay() -> dict[str, str]:
 
 
 @app.task(name="tasks.periodic.rescore_active_clusters")
-def rescore_active_clusters() -> dict[str, str]:
-    return _heartbeat("rescore_active_clusters")
+def rescore_active_clusters() -> dict:
+    """Run community detection + centrality across every active cluster.
+
+    Delegates to :func:`tasks.mesh_tasks.rescore_active_clusters_task` so
+    the heavy lifting (NetworkX import + analytics) lives in one place.
+    """
+
+    from .mesh_tasks import rescore_active_clusters_task
+
+    return rescore_active_clusters_task(limit=30)
 
 
 @app.task(name="tasks.periodic.scancom_batch_import")

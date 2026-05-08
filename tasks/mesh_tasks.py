@@ -1,12 +1,15 @@
 """Mesh-engine async tasks.
 
-Wraps :mod:`core.mesh` entry points so they can be enqueued as Celery jobs.
-The real ``expand_seed`` task wraps :func:`core.mesh.expansion.expand_from_seed`
-in ``asyncio.run`` once the worker is wired with a long-lived Neo4j driver.
-For now these are stubs that log and return a status dict.
+Wraps :mod:`core.mesh` and :mod:`core.analytics` entry points so they
+can be enqueued as Celery jobs. The community detection + centrality
+batches run from the periodic schedule (``rescore_active_clusters``);
+expand_seed remains a stub until the workers are wired with the real
+Neo4j connection lifecycle.
 """
 
 from __future__ import annotations
+
+import asyncio
 
 from config.logging import configure_logging, get_logger
 
@@ -14,6 +17,20 @@ from .celery_app import app
 
 configure_logging()
 logger = get_logger(__name__)
+
+
+def _run_async(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:  # noqa: BLE001
+            pass
+        loop.close()
+        asyncio.set_event_loop(None)
 
 
 @app.task(name="tasks.mesh_tasks.expand_seed")
@@ -30,5 +47,62 @@ def expand_seed(node_id: str, node_type: str, confidence: float = 0.85) -> dict:
 
 @app.task(name="tasks.mesh_tasks.rescore_cluster")
 def rescore_cluster(cluster_id: str) -> dict:
-    logger.info("celery.mesh.rescore_cluster", status="stub", cluster_id=cluster_id)
-    return {"status": "stub", "cluster_id": cluster_id}
+    """Run community detection + centrality for a single cluster and
+    persist the results back to the graph."""
+
+    async def _go():
+        from core.analytics.centrality import compute_for_cluster
+        from core.analytics.community import detect_louvain
+        from core.graph.client import get_neo4j_client
+
+        client = get_neo4j_client()
+        try:
+            if client._driver is None:  # type: ignore[attr-defined]
+                await client.connect()
+        except AttributeError:
+            await client.connect()
+        comm = await detect_louvain(cluster_id)
+        cent = await compute_for_cluster(cluster_id)
+        return {"community": comm, "centrality": cent}
+
+    try:
+        result = _run_async(_go())
+        logger.info("celery.mesh.rescore_cluster.complete", cluster_id=cluster_id)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "celery.mesh.rescore_cluster.error", cluster_id=cluster_id, error=str(exc)
+        )
+        raise
+
+
+@app.task(name="tasks.mesh_tasks.rescore_active_clusters")
+def rescore_active_clusters_task(limit: int = 30) -> dict:
+    """Batch: community detection + centrality across every active cluster.
+
+    Wired into the beat schedule via ``tasks.periodic.rescore_active_clusters``,
+    which delegates here.
+    """
+
+    async def _go():
+        from core.analytics.centrality import compute_for_active_clusters
+        from core.analytics.community import detect_for_active_clusters
+        from core.graph.client import get_neo4j_client
+
+        client = get_neo4j_client()
+        try:
+            if client._driver is None:  # type: ignore[attr-defined]
+                await client.connect()
+        except AttributeError:
+            await client.connect()
+        comm = await detect_for_active_clusters(limit=limit)
+        cent = await compute_for_active_clusters(limit=limit)
+        return {"community": comm, "centrality": cent}
+
+    try:
+        result = _run_async(_go())
+        logger.info("celery.mesh.rescore_active.complete", limit=limit)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.error("celery.mesh.rescore_active.error", error=str(exc))
+        raise
