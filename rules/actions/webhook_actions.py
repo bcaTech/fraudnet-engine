@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from typing import Any
 
 import httpx
 
@@ -49,7 +50,7 @@ def _sign(body: bytes, secret: str) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
-async def _post_with_retry(url: str, body: bytes, *, headers: dict[str, str]) -> tuple[bool, dict]:
+async def _post_with_retry(url: str, body: bytes, *, headers: dict[str, str]) -> tuple[bool, dict[str, Any]]:
     """Returns ``(delivered, detail)``. ``detail`` is JSON-serialisable."""
 
     s = get_settings()

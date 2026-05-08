@@ -14,7 +14,9 @@ doesn't leak a stale event loop.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 from datetime import UTC, datetime, timedelta
+from typing import Any, TypeVar, cast
 
 from config.logging import configure_logging, get_logger
 from rules.engine import evaluate_scheduled as run_scheduled_rules
@@ -24,13 +26,15 @@ from .celery_app import app
 configure_logging()
 logger = get_logger(__name__)
 
+T = TypeVar("T")
+
 
 def _heartbeat(name: str) -> dict[str, str]:
     logger.info("celery.beat.heartbeat", task=name, status="stub")
     return {"task": name, "status": "stub"}
 
 
-def _run_async(coro):
+def _run_async(coro: Coroutine[Any, Any, T]) -> T:
     """Drive an async coroutine from a sync Celery task.
 
     We always create a fresh loop because Celery prefork worker recycling
@@ -58,7 +62,7 @@ def _run_async(coro):
         asyncio.set_event_loop(None)
 
 
-async def _dispose_clients(loop) -> None:  # noqa: ANN001 — internal
+async def _dispose_clients(loop: asyncio.AbstractEventLoop) -> None:
     """Tear down per-loop singletons so the next ``_run_async`` call gets
     fresh clients bound to its own loop."""
 
@@ -66,9 +70,9 @@ async def _dispose_clients(loop) -> None:  # noqa: ANN001 — internal
     try:
         from core.graph import client as _neo_mod
 
-        if _neo_mod._client is not None:  # type: ignore[attr-defined]
-            await _neo_mod._client.close()  # type: ignore[attr-defined]
-            _neo_mod._client = None  # type: ignore[attr-defined]
+        if _neo_mod._client is not None:
+            await _neo_mod._client.close()
+            _neo_mod._client = None
     except Exception:  # noqa: BLE001
         pass
 
@@ -92,7 +96,7 @@ async def _dispose_clients(loop) -> None:  # noqa: ANN001 — internal
         pass
 
 
-async def _ensure_neo4j_connected():
+async def _ensure_neo4j_connected() -> Any:
     """Worker processes don't have the FastAPI lifespan, so the Neo4j
     driver isn't connected when the first task runs. Helper that's
     cheap on subsequent calls (the driver guards the connect)."""
@@ -101,7 +105,7 @@ async def _ensure_neo4j_connected():
 
     client = get_neo4j_client()
     try:
-        if client._driver is None:  # type: ignore[attr-defined]
+        if client._driver is None:
             await client.connect()
     except AttributeError:
         await client.connect()
@@ -109,16 +113,16 @@ async def _ensure_neo4j_connected():
 
 
 @app.task(name="tasks.periodic.apply_temporal_decay")
-def apply_temporal_decay() -> dict:
+def apply_temporal_decay() -> dict[str, Any]:
     """Apply exponential temporal decay to every relationship in the
     graph and prune those whose strength has fallen below the threshold.
     Wired to :func:`core.mesh.maintenance.apply_decay_to_all_edges`."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         client = await _ensure_neo4j_connected()
         from core.mesh.maintenance import apply_decay_to_all_edges
 
-        return await apply_decay_to_all_edges(client)
+        return dict(await apply_decay_to_all_edges(client))
 
     try:
         result = _run_async(_go())
@@ -130,7 +134,7 @@ def apply_temporal_decay() -> dict:
 
 
 @app.task(name="tasks.periodic.rescore_active_clusters")
-def rescore_active_clusters() -> dict:
+def rescore_active_clusters() -> dict[str, Any]:
     """Run community detection + centrality across every active cluster.
 
     Delegates to :func:`tasks.mesh_tasks.rescore_active_clusters_task` so
@@ -139,11 +143,11 @@ def rescore_active_clusters() -> dict:
 
     from .mesh_tasks import rescore_active_clusters_task
 
-    return rescore_active_clusters_task(limit=30)
+    return cast(dict[str, Any], rescore_active_clusters_task(limit=30))
 
 
 @app.task(name="tasks.periodic.scancom_batch_import")
-def scancom_batch_import() -> dict:
+def scancom_batch_import() -> dict[str, Any]:
     """Heartbeat-only until the Scancom registry adapter lands.
 
     Real implementation will pull SIM/IMEI/cell-tower deltas from the
@@ -154,11 +158,11 @@ def scancom_batch_import() -> dict:
 
 
 @app.task(name="tasks.periodic.sleeper_wallet_scan")
-def sleeper_wallet_scan() -> dict:
+def sleeper_wallet_scan() -> dict[str, Any]:
     """Run the sleeper-wallet scan: dormant wallets receiving fraud-linked
     inbound funds get ``is_sleeper=true`` set in the graph."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         await _ensure_neo4j_connected()
         from core.analytics.sleeper import run_sleeper_scan
 
@@ -174,12 +178,12 @@ def sleeper_wallet_scan() -> dict:
 
 
 @app.task(name="tasks.periodic.campaign_detection")
-def campaign_detection() -> dict:
+def campaign_detection() -> dict[str, Any]:
     """Run all three campaign detectors (SIM-burst, wallet-burst,
     agent-cashout-burst). Output goes to the analytics topic — no graph
     mutation."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         await _ensure_neo4j_connected()
         from core.analytics.campaign import detect_campaigns
 
@@ -200,7 +204,7 @@ def campaign_detection() -> dict:
 
 
 @app.task(name="tasks.periodic.evaluate_scheduled_rules")
-def evaluate_scheduled_rules() -> dict:
+def evaluate_scheduled_rules() -> dict[str, Any]:
     """Run every live, scheduled-mode rule against current graph state.
 
     Wired to :func:`rules.engine.evaluate_scheduled` — no longer a stub.
@@ -219,12 +223,12 @@ def evaluate_scheduled_rules() -> dict:
 
 
 @app.task(name="tasks.periodic.process_inbound_integration")
-def process_inbound_integration() -> dict:
+def process_inbound_integration() -> dict[str, Any]:
     """Auto-integrate any inbound shared flags whose source operator is
     configured with ``auto_integrate=True``. Records action_taken so the
     NOC view distinguishes auto- from human-handled flags."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         from sqlalchemy import and_, select, update
 
         from db.models import ExternalOperator, SharedFlag
@@ -258,7 +262,7 @@ def process_inbound_integration() -> dict:
                 )
                 .values(action_taken="integrated", actioned_at=cutoff)
             )
-            actioned = int(result.rowcount or 0)
+            actioned = int(getattr(result, "rowcount", 0) or 0)
             await db.commit()
             return {"actioned": actioned, "auto_operators": len(ops)}
 
@@ -272,7 +276,7 @@ def process_inbound_integration() -> dict:
 
 
 @app.task(name="tasks.periodic.process_outbound_integration")
-def process_outbound_integration() -> dict:
+def process_outbound_integration() -> dict[str, Any]:
     """Stamp any unsent outbound shared flags as 'sent'.
 
     Real delivery to operator HTTP APIs is a stub — networking + HMAC
@@ -280,7 +284,7 @@ def process_outbound_integration() -> dict:
     confirms the queue is being drained.
     """
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         from sqlalchemy import and_, update
 
         from db.models import SharedFlag
@@ -298,7 +302,7 @@ def process_outbound_integration() -> dict:
                 )
                 .values(action_taken="sent", actioned_at=cutoff)
             )
-            sent = int(result.rowcount or 0)
+            sent = int(getattr(result, "rowcount", 0) or 0)
             await db.commit()
             return {"sent": sent}
 
@@ -312,13 +316,13 @@ def process_outbound_integration() -> dict:
 
 
 @app.task(name="tasks.periodic.rules_performance_aggregation")
-def rules_performance_aggregation() -> dict:
+def rules_performance_aggregation() -> dict[str, Any]:
     """Recompute trigger_count and false_positive_count on every Rule
     from the canonical RuleTrigger rows. Cheap to run hourly; keeps the
     rule-detail UI consistent with reality even when triggers are
     inserted out-of-band."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         from sqlalchemy import case, func, select, update
 
         from db.models import Rule, RuleTrigger
@@ -363,13 +367,13 @@ def rules_performance_aggregation() -> dict:
 
 
 @app.task(name="tasks.periodic.external_operator_health_check")
-def external_operator_health_check() -> dict:
+def external_operator_health_check() -> dict[str, Any]:
     """Check every connected operator's last activity and stamp
     last_health_check. Real version would HTTP-ping each operator's
     /external/v1/health endpoint; this stamp-and-log version keeps the
     integration health UI fresh until that lands."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         from sqlalchemy import select
 
         from db.models import ExternalOperator
@@ -405,12 +409,12 @@ def external_operator_health_check() -> dict:
 
 
 @app.task(name="tasks.periodic.law_enforcement_case_reminders")
-def law_enforcement_case_reminders() -> dict:
+def law_enforcement_case_reminders() -> dict[str, Any]:
     """Find LE cases that haven't seen activity for 7+ days and write a
     reminder note to the case message thread. Uses the system sender
     role so the UI can highlight automated reminders."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         import uuid
 
         from sqlalchemy import desc, select
@@ -478,7 +482,7 @@ def law_enforcement_case_reminders() -> dict:
 
 
 @app.task(name="tasks.periodic.cleanup_stale_rule_state")
-def cleanup_stale_rule_state(days: int = 7) -> dict:
+def cleanup_stale_rule_state(days: int = 7) -> dict[str, Any]:
     """Clear rule-set flags (kyc_pending_reverification, send_with_care,
     ask_me_first, cashout_restricted, cross_network_blocked) that are
     older than ``days`` and weren't followed up by a human action.
@@ -488,7 +492,7 @@ def cleanup_stale_rule_state(days: int = 7) -> dict:
     decision belongs in policy; in dev a 7-day cleanup is a reasonable
     default."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         client = await _ensure_neo4j_connected()
         # Cypher: clear flags whose timestamp is older than the cutoff.
         rows = await client.execute_write(

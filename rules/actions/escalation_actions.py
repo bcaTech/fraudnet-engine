@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,7 @@ from db.session import get_async_session
 from .registry import ActionContext, ActionRegistry, ActionResult
 
 
-async def _publish_alert_event(event: str, payload: dict) -> None:
+async def _publish_alert_event(event: str, payload: dict[str, Any]) -> None:
     """Lazy-imported WS publisher. Kept inside the function so the rules
     package can be imported in environments (e.g. Celery worker forks)
     that haven't fully resolved the ``api`` package — the publish is

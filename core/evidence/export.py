@@ -71,7 +71,7 @@ _TABLE_HEADER = TableStyle(
 )
 
 
-def _kv_block(rows: list[tuple[str, Any]], styles) -> Table:
+def _kv_block(rows: list[tuple[str, Any]], styles: Any) -> Table:
     data = [[k, str(v if v is not None else "—")] for k, v in rows]
     table = Table(data, colWidths=[5 * cm, 11 * cm])
     table.setStyle(
@@ -282,7 +282,7 @@ def render_pdf(payload: dict[str, Any]) -> tuple[bytes, int]:
     # Capture page count via a callback.
     page_counter = {"n": 0}
 
-    def _on_page(_canvas, _doc):  # noqa: ANN001 — reportlab signature
+    def _on_page(_canvas: Any, _doc: Any) -> None:
         page_counter["n"] += 1
 
     doc.build(story, onFirstPage=_on_page, onLaterPages=_on_page)

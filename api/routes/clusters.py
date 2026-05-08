@@ -37,7 +37,7 @@ async def list_clusters(
     min_confidence: float | None = Query(None, ge=0, le=1),
     max_confidence: float | None = Query(None, ge=0, le=1),
     since: str | None = Query(None, description="ISO-8601 timestamp"),
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[dict[str, Any]]]:
     skip = (page - 1) * per_page
     params = {
         "status": status_filter,
@@ -66,7 +66,7 @@ async def list_clusters(
 
 
 @router.get("/{cluster_id}")
-async def get_cluster(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[dict]:
+async def get_cluster(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     rows = await neo4j.execute_read(GET_CLUSTER, {"cluster_id": cluster_id})
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "cluster not found")
@@ -162,7 +162,7 @@ async def get_cluster_nodes(
     neo4j: Neo4jDep,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=500),
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[dict[str, Any]]]:
     skip = (page - 1) * per_page
     rows = await neo4j.execute_read(
         GET_CLUSTER_NODES,
@@ -195,7 +195,7 @@ async def get_cluster_nodes(
 
 
 @router.get("/{cluster_id}/evidence")
-async def get_cluster_evidence(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[list[dict]]:
+async def get_cluster_evidence(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[list[dict[str, Any]]]:
     """Evidence chain timeline. The full builder lives in ``core/evidence``;
     this stub returns the cluster's seed event so the UI can render at least one row."""
 
@@ -220,7 +220,7 @@ async def get_cluster_evidence(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[
 
 
 @router.get("/{cluster_id}/fund-flow")
-async def get_cluster_fund_flow(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[dict]:
+async def get_cluster_fund_flow(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     """Sankey-format fund flow data for the cluster.
 
     Aggregates ``SENT_TO`` edges between cluster members + cashouts to agents.
@@ -277,7 +277,7 @@ async def expand_cluster(
     payload: ExpansionRequest,
     neo4j: Neo4jDep,
     background_tasks: BackgroundTasks,
-) -> APIResponse[dict]:
+) -> APIResponse[dict[str, Any]]:
     """Trigger a manual expansion using ``payload.seed_node_id`` as the seed.
 
     The ``cluster_id`` path parameter is treated as a *parent* cluster — the

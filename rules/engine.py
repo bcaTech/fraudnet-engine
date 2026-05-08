@@ -174,7 +174,7 @@ _redis: redis_async.Redis | None = None
 async def _dedup_redis() -> redis_async.Redis:
     global _redis
     if _redis is None:
-        _redis = redis_async.from_url(get_settings().redis_url, decode_responses=True)
+        _redis = redis_async.from_url(get_settings().redis_url, decode_responses=True)  # type: ignore[no-untyped-call]
     return _redis
 
 
@@ -308,7 +308,7 @@ async def evaluate_scheduled(
     client = get_neo4j_client()
     # Ensure driver is connected (Celery worker process won't have lifespan).
     try:
-        if client._driver is None:  # type: ignore[attr-defined]
+        if client._driver is None:
             await client.connect()
     except AttributeError:
         await client.connect()

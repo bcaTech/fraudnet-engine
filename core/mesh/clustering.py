@@ -15,8 +15,9 @@ back to Neo4j and for managing its lifecycle:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from config.constants import CLUSTER_STATUS_ACTIVE
 from config.logging import get_logger
@@ -73,7 +74,7 @@ class ClusterPersistence:
             logger.warning("mesh.persist.unknown_seed_label", seed_type=result.seed.node_type)
 
         joined_at = datetime.now(UTC).isoformat()
-        statements: list[tuple[str, dict[str, object]]] = []
+        statements: list[tuple[str, Mapping[str, Any]]] = []
         for node in result.nodes:
             label = node.label
             if label not in _LABEL_KEY:

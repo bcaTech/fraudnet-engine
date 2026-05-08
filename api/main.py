@@ -14,9 +14,11 @@ Run locally with ``uvicorn api.main:app --reload``.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,8 +58,9 @@ def _run_alembic_upgrade() -> None:
     blocking SQLAlchemy/Alembic calls don't stall the event loop.
     """
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     repo_root = Path(__file__).resolve().parents[1]
     cfg = Config(str(repo_root / "alembic.ini"))
@@ -66,7 +69,7 @@ def _run_alembic_upgrade() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Connect Neo4j, apply the graph schema, start the WS bridge + metrics
     publisher, then yield."""
 
@@ -174,7 +177,7 @@ def create_app() -> FastAPI:
 
     # ---- root + health --------------------------------------------------
     @app.get("/", include_in_schema=False)
-    async def root() -> APIResponse[dict]:
+    async def root() -> APIResponse[dict[str, Any]]:
         return ok(
             {
                 "service": "fraudnet-engine",
@@ -185,7 +188,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/health")
-    async def health() -> APIResponse[dict]:
+    async def health() -> APIResponse[dict[str, Any]]:
         client = get_neo4j_client()
         neo4j_ok = await client.health()
         node_counts: dict[str, int] = {}

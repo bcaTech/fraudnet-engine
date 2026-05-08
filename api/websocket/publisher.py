@@ -53,7 +53,7 @@ async def _get_client() -> redis_async.Redis:
     global _client
     if _client is None:
         settings = get_settings()
-        _client = redis_async.from_url(settings.redis_url, decode_responses=True)
+        _client = redis_async.from_url(settings.redis_url, decode_responses=True)  # type: ignore[no-untyped-call]
     return _client
 
 
@@ -86,4 +86,4 @@ async def publish(channel: str, event: str, data: Any) -> None:
         client = await _get_client()
         await client.publish(channel, json.dumps(payload, default=str))
     except Exception as exc:  # noqa: BLE001 — broadcast is best-effort
-        logger.warning("ws.publish.failed", channel=channel, event=event, error=str(exc))
+        logger.warning("ws.publish.failed", channel=channel, event_name=event, error=str(exc))

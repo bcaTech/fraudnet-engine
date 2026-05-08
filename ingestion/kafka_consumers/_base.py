@@ -106,7 +106,8 @@ class KafkaConsumerBase(ABC):
         if not raw:
             return None
         try:
-            return json.loads(raw)
+            decoded: dict[str, Any] = json.loads(raw)
+            return decoded
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None
 

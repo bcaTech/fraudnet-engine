@@ -31,8 +31,10 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import inspect
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from config.logging import configure_logging, get_logger
@@ -173,13 +175,13 @@ def _hash_id(value: str) -> str:
 @dataclass
 class GraphState:
     rng: random.Random
-    wallets: list[dict] = field(default_factory=list)
-    handsets: list[dict] = field(default_factory=list)
-    sims: list[dict] = field(default_factory=list)
-    phones: list[dict] = field(default_factory=list)
-    agents: list[dict] = field(default_factory=list)
-    cell_towers: list[dict] = field(default_factory=list)
-    clusters: list[dict] = field(default_factory=list)
+    wallets: list[dict[str, Any]] = field(default_factory=list)
+    handsets: list[dict[str, Any]] = field(default_factory=list)
+    sims: list[dict[str, Any]] = field(default_factory=list)
+    phones: list[dict[str, Any]] = field(default_factory=list)
+    agents: list[dict[str, Any]] = field(default_factory=list)
+    cell_towers: list[dict[str, Any]] = field(default_factory=list)
+    clusters: list[dict[str, Any]] = field(default_factory=list)
     cluster_membership: dict[str, list[tuple[str, str, str, float]]] = field(default_factory=dict)
     """cluster_id → list of (label, key_field, key_value, confidence)."""
 
@@ -384,7 +386,7 @@ async def _seed_sims_and_phones(client: Neo4jClient, state: GraphState) -> None:
 
     # Wire SIM -> Handset (INSERTED_IN). Most SIMs fit one handset; a few hop
     # between two — that's the strong-edge fraud signal.
-    sim_to_handsets: list[dict] = []
+    sim_to_handsets: list[dict[str, Any]] = []
     for sim in state.sims:
         # Each SIM has 1 main handset, 12% have a second one.
         primary = rng.choice(state.handsets)
@@ -447,7 +449,7 @@ async def _seed_sims_and_phones(client: Neo4jClient, state: GraphState) -> None:
     )
 
     # Handset -> CellTower (CONNECTED_TO).
-    connections: list[dict] = []
+    connections: list[dict[str, Any]] = []
     for h in state.handsets:
         for _ in range(rng.randint(1, 3)):
             tower = rng.choice(state.cell_towers)
@@ -673,16 +675,16 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
     cash out to a small set of agents; clean wallets follow more uniform patterns."""
 
     rng = state.rng
-    cluster_wallets_by_cluster: dict[str, list[dict]] = {
+    cluster_wallets_by_cluster: dict[str, list[dict[str, Any]]] = {
         c["cluster_id"]: [w for w in state.wallets if w.get("cluster_id") == c["cluster_id"]]
         for c in state.clusters
     }
     clean_wallets = [w for w in state.wallets if not w.get("cluster_id")]
 
-    txns: list[dict] = []
-    sent_to: list[dict] = []
-    cashouts: list[dict] = []
-    cashins: list[dict] = []
+    txns: list[dict[str, Any]] = []
+    sent_to: list[dict[str, Any]] = []
+    cashouts: list[dict[str, Any]] = []
+    cashins: list[dict[str, Any]] = []
 
     # Pre-pick 1-3 cashout agents per cluster (the fraud sinks).
     cluster_sink_agents: dict[str, list[str]] = {}
@@ -920,7 +922,7 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_tables_exist(engine) -> None:  # noqa: ANN001 — Engine is not generic
+def _ensure_tables_exist(engine: Engine) -> None:
     """Fail loudly if Alembic hasn't been run.
 
     The seeder owns rows, not schema. Tables come from
@@ -933,10 +935,7 @@ def _ensure_tables_exist(engine) -> None:  # noqa: ANN001 — Engine is not gene
     actual = set(inspector.get_table_names())
     missing = sorted(expected - actual)
     if missing:
-        raise RuntimeError(
-            "seed: tables missing — run `alembic upgrade head` first. "
-            f"Missing: {missing}"
-        )
+        raise RuntimeError(f"seed: tables missing — run `alembic upgrade head` first. Missing: {missing}")
 
 
 def _seed_postgres(state: GraphState, *, reset: bool) -> None:
@@ -1193,8 +1192,14 @@ def _seed_takedowns(session: Session, state: GraphState) -> None:
         cluster = eligible_clusters[i]
         status = statuses[i]
         initiated = _rand_dt(rng, days_back=20)
-        approved = initiated + timedelta(hours=rng.randint(2, 36)) if status != "pending" else None
-        completed = approved + timedelta(hours=rng.randint(6, 96)) if status == "completed" else None
+        approved: datetime | None = (
+            initiated + timedelta(hours=rng.randint(2, 36)) if status != "pending" else None
+        )
+        completed = (
+            approved + timedelta(hours=rng.randint(6, 96))
+            if status == "completed" and approved is not None
+            else None
+        )
         td = Takedown(
             id=_new_id("td"),
             cluster_id=cluster["cluster_id"],
@@ -1230,10 +1235,19 @@ def _seed_takedowns(session: Session, state: GraphState) -> None:
                     step_status = "in_progress"
                 else:
                     step_status = "pending"
-                started = approved + timedelta(hours=j) if step_status != "pending" else None
-                step_completed = approved + timedelta(hours=j + 1) if step_status == "completed" else None
+                started = (
+                    approved + timedelta(hours=j)
+                    if step_status != "pending" and approved is not None
+                    else None
+                )
+                step_completed = (
+                    approved + timedelta(hours=j + 1)
+                    if step_status == "completed" and approved is not None
+                    else None
+                )
             else:  # completed
                 step_status = "completed"
+                assert approved is not None
                 started = approved + timedelta(hours=j)
                 step_completed = approved + timedelta(hours=j + 1)
             session.add(

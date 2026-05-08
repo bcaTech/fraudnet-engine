@@ -140,7 +140,8 @@ def load_current() -> TrainedModel | None:
     if not path.exists():
         return None
     with path.open("rb") as fh:
-        return pickle.load(fh)
+        loaded: TrainedModel = pickle.load(fh)
+        return loaded
 
 
 __all__ = ["train", "load_current", "TrainedModel", "TrainingResult", "MODEL_DIR"]

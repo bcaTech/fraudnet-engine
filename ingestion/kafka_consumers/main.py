@@ -71,9 +71,11 @@ async def run_all() -> None:
 
     # Re-raise the first task exception, if any, so the container exits
     # non-zero and the orchestrator can replace it.
-    for t in done:
-        if t in tasks and t.exception() is not None:
-            raise t.exception()  # type: ignore[misc]
+    for done_task in done:
+        if done_task in tasks and done_task.exception() is not None:
+            exc = done_task.exception()
+            assert exc is not None
+            raise exc
 
 
 def main() -> None:

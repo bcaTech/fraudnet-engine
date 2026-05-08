@@ -12,6 +12,7 @@ edits: extend ``FEATURE_NAMES`` and the Cypher in :func:`fetch_batch`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from core.graph.client import Neo4jClient, get_neo4j_client
 
@@ -94,7 +95,7 @@ async def fetch_population(*, limit: int = 1000, client: Neo4jClient | None = No
     return [_row_to_features(r) for r in rows]
 
 
-def _row_to_features(r: dict) -> WalletFeatures:
+def _row_to_features(r: dict[str, Any]) -> WalletFeatures:
     cluster_id = r.get("cluster_id")
     return WalletFeatures(
         wallet_id=str(r["wallet_id"]),

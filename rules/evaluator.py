@@ -72,7 +72,7 @@ def _safe_lt(a: Any, b: Any) -> bool:
         return False
     a, b = _coerce_pair(a, b)
     try:
-        return a < b
+        return bool(a < b)
     except TypeError:
         return False
 
@@ -82,14 +82,14 @@ def _safe_gt(a: Any, b: Any) -> bool:
         return False
     a, b = _coerce_pair(a, b)
     try:
-        return a > b
+        return bool(a > b)
     except TypeError:
         return False
 
 
 def _eq(a: Any, b: Any) -> bool:
     a, b = _coerce_pair(a, b)
-    return a == b
+    return bool(a == b)
 
 
 OPERATORS: dict[str, Callable[[Any, Any], bool]] = {

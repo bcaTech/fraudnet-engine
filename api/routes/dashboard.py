@@ -8,6 +8,7 @@ service layer — TODO when the cache module lands).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
@@ -24,10 +25,11 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("/metrics")
-async def get_metrics(neo4j: Neo4jDep) -> APIResponse[dict]:
+async def get_metrics(neo4j: Neo4jDep) -> APIResponse[dict[str, Any]]:
     """KPI summary for the NOC dashboard top-of-page tiles."""
 
     rows = await neo4j.execute_read(DASHBOARD_METRICS)
+    payload: dict[str, Any]
     if not rows:
         payload = {
             "active_clusters": 0,
@@ -53,7 +55,7 @@ async def get_metrics(neo4j: Neo4jDep) -> APIResponse[dict]:
 async def get_cluster_overview(
     neo4j: Neo4jDep,
     limit: int = Query(20, ge=1, le=100),
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[dict[str, Any]]]:
     """Mini-graph metadata for the dashboard's cluster strip."""
 
     rows = await neo4j.execute_read(CLUSTER_OVERVIEW, {"limit": limit})
@@ -74,7 +76,7 @@ async def get_alert_feed(
     per_page: int = Query(20, ge=1, le=100),
     severity: str | None = Query(None, pattern="^(low|medium|high|critical)$"),
     acknowledged: bool | None = None,
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[dict[str, Any]]]:
     """Recent alert feed, most-recent-first.
 
     Mirrors a slice of ``/api/alerts`` shaped for the NOC home tile. Filter by
@@ -123,7 +125,7 @@ async def get_alert_feed(
 async def get_activity_timeline(
     neo4j: Neo4jDep,
     hours: int = Query(24, ge=1, le=168),
-) -> APIResponse[dict]:
+) -> APIResponse[dict[str, Any]]:
     """Hourly transaction volume + fraud overlay for the last ``hours``.
 
     Returns two parallel series suitable for direct charting.
@@ -160,7 +162,7 @@ async def get_activity_timeline(
 async def get_recent_takedowns(
     db: DBSessionDep,
     limit: int = Query(10, ge=1, le=50),
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[dict[str, Any]]]:
     """Latest takedowns, most-recently-initiated first."""
 
     rows = (

@@ -128,7 +128,25 @@ markers = [
 
 [tool.mypy]
 python_version = "3.11"
-strict_optional = true
-warn_unused_ignores = true
-warn_return_any = true
+strict = true
+ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
+# Allow re-exports inside our own packages so internal __init__.py
+# doesn't have to repeat every name.
+implicit_reexport = true
+# These errors are mostly from third-party decorators we can't type
+# (Celery's @app.task, FastAPI's @router.* in some edge cases).
+disable_error_code = ["untyped-decorator"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = "scripts.*"
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "alembic.*"
+ignore_errors = true

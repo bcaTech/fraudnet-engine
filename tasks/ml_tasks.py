@@ -9,6 +9,9 @@ geometric are installed.
 
 from __future__ import annotations
 
+from collections.abc import Coroutine
+from typing import Any, TypeVar
+
 from config.logging import configure_logging, get_logger
 
 from .celery_app import app
@@ -16,14 +19,16 @@ from .celery_app import app
 configure_logging()
 logger = get_logger(__name__)
 
+T = TypeVar("T")
 
-def _run_async(coro):
+
+def _run_async(coro: Coroutine[Any, Any, T]) -> T:
     from .periodic import _run_async as _shared_run_async
 
     return _shared_run_async(coro)
 
 
-async def _ensure_neo4j_connected():
+async def _ensure_neo4j_connected() -> Any:
     """Workers don't have FastAPI's lifespan; the per-task client
     teardown also resets the singleton, so each ML task connects before
     using the driver."""
@@ -32,7 +37,7 @@ async def _ensure_neo4j_connected():
 
     client = get_neo4j_client()
     try:
-        if client._driver is None:  # type: ignore[attr-defined]
+        if client._driver is None:
             await client.connect()
     except AttributeError:
         await client.connect()
@@ -40,7 +45,7 @@ async def _ensure_neo4j_connected():
 
 
 @app.task(name="tasks.ml_tasks.retrain_anomaly_baselines")
-def retrain_anomaly_baselines(sample_size: int = 1000) -> dict:
+def retrain_anomaly_baselines(sample_size: int = 1000) -> dict[str, Any]:
     """Re-fit the behavioural model from current graph state.
 
     Returns the training-result summary (sample size, class balance,
@@ -48,7 +53,7 @@ def retrain_anomaly_baselines(sample_size: int = 1000) -> dict:
     ``current`` so the next inference call picks it up.
     """
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         await _ensure_neo4j_connected()
         from core.ml.training import train
 
@@ -72,11 +77,11 @@ def retrain_anomaly_baselines(sample_size: int = 1000) -> dict:
 
 
 @app.task(name="tasks.ml_tasks.evaluate_gnn_performance")
-def evaluate_gnn_performance() -> dict:
+def evaluate_gnn_performance() -> dict[str, Any]:
     """Score the current model against a fresh sample. Reports
     precision/recall/F1/AUC. Used by the weekly model-review cadence."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         await _ensure_neo4j_connected()
         from core.ml.gnn_model import evaluate_performance
 
@@ -92,12 +97,12 @@ def evaluate_gnn_performance() -> dict:
 
 
 @app.task(name="tasks.ml_tasks.batch_score_wallets")
-def batch_score_wallets(limit: int = 500) -> dict:
+def batch_score_wallets(limit: int = 500) -> dict[str, Any]:
     """Score a sample of wallets and persist ``predictive_score`` back
     to the graph. Trims the score payload before returning so the
     Celery result backend doesn't bloat."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         await _ensure_neo4j_connected()
         from core.ml.inference import score_wallets
 

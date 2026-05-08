@@ -17,7 +17,7 @@ type alias.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -127,7 +127,7 @@ CurrentUser = Annotated[TokenClaims, Depends(current_user)]
 # ---------------------------------------------------------------------------
 
 
-def require_role(*allowed: str):
+def require_role(*allowed: str) -> Callable[[TokenClaims], Awaitable[TokenClaims]]:
     """FastAPI dependency that 403s unless the principal satisfies *any*
     of ``allowed``. Internal-role allowed entries match by hierarchy; peer
     roles match exactly.
@@ -154,7 +154,7 @@ def require_role(*allowed: str):
     return _checker
 
 
-def require_any_role(allowed: Iterable[str]):
+def require_any_role(allowed: Iterable[str]) -> Callable[[TokenClaims], Awaitable[TokenClaims]]:
     """Like :func:`require_role` but takes an iterable. Sugar for the case
     where the caller is computing the allow-list."""
 

@@ -7,6 +7,9 @@ lakehouse is live it will write a daily Iceberg snapshot.
 
 from __future__ import annotations
 
+from collections.abc import Coroutine
+from typing import Any, TypeVar
+
 from config.logging import configure_logging, get_logger
 
 from .celery_app import app
@@ -14,8 +17,10 @@ from .celery_app import app
 configure_logging()
 logger = get_logger(__name__)
 
+T = TypeVar("T")
 
-def _run_async(coro):
+
+def _run_async(coro: Coroutine[Any, Any, T]) -> T:
     """Shared sync→async bridge. Delegates to the canonical helper in
     :mod:`tasks.periodic`."""
 
@@ -25,23 +30,23 @@ def _run_async(coro):
 
 
 @app.task(name="tasks.report_tasks.generate_analytics_snapshot")
-def generate_analytics_snapshot() -> dict:
+def generate_analytics_snapshot() -> dict[str, Any]:
     """Compute and log a daily KPI snapshot. Production version writes
     to ``features_snapshots`` Iceberg; for now we just record the
     numbers so they land in the worker log + Celery result backend."""
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         from core.graph.client import get_neo4j_client
         from core.graph.queries import DASHBOARD_METRICS
 
         client = get_neo4j_client()
         try:
-            if client._driver is None:  # type: ignore[attr-defined]
+            if client._driver is None:
                 await client.connect()
         except AttributeError:
             await client.connect()
         rows = await client.execute_read(DASHBOARD_METRICS)
-        return rows[0] if rows else {}
+        return dict(rows[0]) if rows else {}
 
     try:
         result = _run_async(_go())
@@ -60,7 +65,7 @@ def generate_analytics_snapshot() -> dict:
 
 
 @app.task(name="tasks.report_tasks.build_evidence_package")
-def build_evidence_package(cluster_id: str, case_id: str | None = None) -> dict:
+def build_evidence_package(cluster_id: str, case_id: str | None = None) -> dict[str, Any]:
     """Build an evidence package via :mod:`core.evidence.builder`.
 
     Returns the persisted package summary (id, version, page_count,
@@ -68,13 +73,13 @@ def build_evidence_package(cluster_id: str, case_id: str | None = None) -> dict:
     the takedown workflow — analyst pre-print, scheduled refresh, etc.
     """
 
-    async def _go():
+    async def _go() -> dict[str, Any]:
         from core.evidence.builder import build_for_cluster
         from core.graph.client import get_neo4j_client
 
         client = get_neo4j_client()
         try:
-            if client._driver is None:  # type: ignore[attr-defined]
+            if client._driver is None:
                 await client.connect()
         except AttributeError:
             await client.connect()

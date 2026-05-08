@@ -70,7 +70,7 @@ class RedisBridge:
 
     async def start(self) -> None:
         settings = get_settings()
-        self._client = redis_async.from_url(settings.redis_url, decode_responses=True)
+        self._client = redis_async.from_url(settings.redis_url, decode_responses=True)  # type: ignore[no-untyped-call]
         self._pubsub = self._client.pubsub()
         if self._channels:
             await self._pubsub.subscribe(*self._channels)
@@ -95,7 +95,7 @@ class RedisBridge:
             try:
                 await self._pubsub.unsubscribe()
                 await self._pubsub.punsubscribe()
-                await self._pubsub.aclose()
+                await self._pubsub.aclose()  # type: ignore[no-untyped-call]
             except Exception:  # noqa: BLE001
                 pass
         if self._client is not None:

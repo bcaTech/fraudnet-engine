@@ -46,7 +46,7 @@ def _alert_to_dict(a: Alert) -> dict[str, Any]:
 
 
 @router.get("/stats")
-async def alert_stats(db: DBSessionDep) -> APIResponse[dict]:
+async def alert_stats(db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Aggregate counts by severity, type, and acknowledged state.
 
     Powers the alert-volume charts in the analytics view.
@@ -79,7 +79,7 @@ async def list_alerts(
     acknowledged: bool | None = None,
     cluster_id: str | None = None,
     target_id: str | None = None,
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[dict[str, Any]]]:
     """List alerts most-recent-first with the usual filter knobs."""
 
     conditions = []
@@ -115,7 +115,7 @@ async def acknowledge_alert(
     alert_id: str,
     db: DBSessionDep,
     user: Annotated[TokenClaims, Depends(require_role(ROLE_ANALYST))],
-) -> APIResponse[dict]:
+) -> APIResponse[dict[str, Any]]:
     """Mark an alert as acknowledged. Idempotent — re-acking is a no-op
     that returns the current state."""
 
@@ -140,7 +140,7 @@ async def dismiss_alert(
     db: DBSessionDep,
     user: Annotated[TokenClaims, Depends(require_role(ROLE_ANALYST))],
     reason: str | None = Query(None, max_length=255),
-) -> APIResponse[dict]:
+) -> APIResponse[dict[str, Any]]:
     """Dismiss an alert. Persisted as ``acknowledged=true`` with the
     dismissal reason captured in ``extra.dismissal_reason``."""
 

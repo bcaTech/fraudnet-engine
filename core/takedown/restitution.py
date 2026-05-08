@@ -52,7 +52,7 @@ async def trace_restitution_candidates(
         """,
         {"cluster_id": cluster_id, "days": since_days},
     )
-    candidates = [
+    candidates: list[dict[str, Any]] = [
         {
             "wallet_id": r.get("wallet_id"),
             "msisdn": r.get("msisdn"),
@@ -62,7 +62,7 @@ async def trace_restitution_candidates(
         }
         for r in rows
     ]
-    total = sum(x["lost_amount"] for x in candidates)
+    total: float = sum(float(x["lost_amount"]) for x in candidates)
     logger.info(
         "takedown.restitution.candidates",
         cluster_id=cluster_id,

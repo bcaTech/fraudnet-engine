@@ -200,7 +200,7 @@ async def initiate_takedown(
     detail = (
         await db.execute(select(Takedown).where(Takedown.id == td.id).options(selectinload(Takedown.steps)))
     ).scalar_one()
-    payload = _td_to_dict(detail, include_steps=True)
+    response_body = _td_to_dict(detail, include_steps=True)
     await publish(
         CH_CLUSTER_UPDATES,
         "cluster.takedown_initiated",
@@ -211,7 +211,7 @@ async def initiate_takedown(
             "summary": detail.summary,
         },
     )
-    return ok(payload)
+    return ok(response_body)
 
 
 # ---------------------------------------------------------------------------

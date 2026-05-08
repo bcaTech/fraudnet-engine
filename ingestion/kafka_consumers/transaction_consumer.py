@@ -24,7 +24,7 @@ from typing import Any
 
 from config.constants import KAFKA_TOPICS
 from config.logging import get_logger
-from core.graph.client import get_neo4j_client
+from core.graph.client import Neo4jClient, get_neo4j_client
 from ingestion.enrichment.identity_resolver import resolve_by_wallet
 from rules.engine import evaluate_event
 
@@ -93,7 +93,7 @@ class TransactionConsumer(KafkaConsumerBase):
     # -- writes -----------------------------------------------------------
 
     @staticmethod
-    async def _upsert_tx(event: dict[str, Any], client) -> None:
+    async def _upsert_tx(event: dict[str, Any], client: Neo4jClient) -> None:
         await client.execute_write(
             """
             MERGE (t:Transaction {tx_id: $tx_id})
@@ -115,7 +115,7 @@ class TransactionConsumer(KafkaConsumerBase):
             },
         )
 
-    async def _wallet_to_wallet(self, event: dict[str, Any], client) -> None:
+    async def _wallet_to_wallet(self, event: dict[str, Any], client: Neo4jClient) -> None:
         src = event.get("src_wallet_id") or event.get("from_wallet_id")
         dst = event.get("dst_wallet_id") or event.get("to_wallet_id")
         if not src or not dst:
@@ -142,7 +142,7 @@ class TransactionConsumer(KafkaConsumerBase):
             },
         )
 
-    async def _wallet_to_agent(self, event: dict[str, Any], client, rel: str) -> None:
+    async def _wallet_to_agent(self, event: dict[str, Any], client: Neo4jClient, rel: str) -> None:
         wallet = event.get("wallet_id") or event.get("src_wallet_id")
         agent = event.get("agent_id")
         if not wallet or not agent:
