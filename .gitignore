@@ -30,3 +30,5 @@ data/
 logs/
 *.log
 celerybeat-schedule
+# Model artefacts written by the training task
+models/
