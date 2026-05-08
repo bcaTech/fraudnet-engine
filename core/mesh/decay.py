@@ -13,7 +13,7 @@ properties in Neo4j and prunes any edge that has decayed below
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from config.constants import (
     DECAY_PRUNE_THRESHOLD,
@@ -37,9 +37,9 @@ def days_between(a: datetime, b: datetime) -> float:
     """Return the absolute number of days between two datetimes."""
 
     if a.tzinfo is None:
-        a = a.replace(tzinfo=timezone.utc)
+        a = a.replace(tzinfo=UTC)
     if b.tzinfo is None:
-        b = b.replace(tzinfo=timezone.utc)
+        b = b.replace(tzinfo=UTC)
     return abs((b - a).total_seconds()) / 86400.0
 
 
@@ -58,7 +58,7 @@ def decayed_strength(
 ) -> float:
     """Compute the live strength of an edge as of ``now``."""
 
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     return apply_decay(base_strength, half_life_for(edge_type), days_between(last_seen, now))
 
 

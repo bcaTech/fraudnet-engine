@@ -10,7 +10,7 @@ to every connected ``/ws/metrics`` client.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -52,9 +52,7 @@ async def _snapshot() -> dict[str, Any]:
 
     async with get_async_session() as db:
         unack = (
-            await db.execute(
-                select(func.count(Alert.id)).where(Alert.acknowledged.is_(False))
-            )
+            await db.execute(select(func.count(Alert.id)).where(Alert.acknowledged.is_(False)))
         ).scalar_one()
         critical_unack = (
             await db.execute(
@@ -76,7 +74,7 @@ async def _snapshot() -> dict[str, Any]:
         "unacknowledged_alerts": int(unack),
         "critical_unacknowledged_alerts": int(critical_unack),
         "active_takedowns": int(active_takedowns),
-        "snapshot_at": datetime.now(timezone.utc).isoformat(),
+        "snapshot_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -111,7 +109,7 @@ class MetricsPublisher:
                 logger.warning("ws.metrics.snapshot_error", error=str(exc))
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval_s)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             else:
                 return  # stop requested

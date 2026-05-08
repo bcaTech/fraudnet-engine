@@ -70,9 +70,7 @@ def rescore_cluster(cluster_id: str) -> dict:
         logger.info("celery.mesh.rescore_cluster.complete", cluster_id=cluster_id)
         return result
     except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "celery.mesh.rescore_cluster.error", cluster_id=cluster_id, error=str(exc)
-        )
+        logger.error("celery.mesh.rescore_cluster.error", cluster_id=cluster_id, error=str(exc))
         raise
 
 

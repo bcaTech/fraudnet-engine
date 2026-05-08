@@ -15,22 +15,14 @@ logger = get_logger(__name__)
 
 # Uniqueness constraints. Each entry is a Cypher CREATE CONSTRAINT ... IF NOT EXISTS.
 CONSTRAINT_STATEMENTS: list[str] = [
-    "CREATE CONSTRAINT wallet_id IF NOT EXISTS "
-    "FOR (w:Wallet) REQUIRE w.wallet_id IS UNIQUE",
-    "CREATE CONSTRAINT msisdn IF NOT EXISTS "
-    "FOR (p:PhoneNumber) REQUIRE p.msisdn IS UNIQUE",
-    "CREATE CONSTRAINT imei IF NOT EXISTS "
-    "FOR (h:Handset) REQUIRE h.imei IS UNIQUE",
-    "CREATE CONSTRAINT imsi IF NOT EXISTS "
-    "FOR (s:SIM) REQUIRE s.imsi IS UNIQUE",
-    "CREATE CONSTRAINT agent_id IF NOT EXISTS "
-    "FOR (a:Agent) REQUIRE a.agent_id IS UNIQUE",
-    "CREATE CONSTRAINT tx_id IF NOT EXISTS "
-    "FOR (t:Transaction) REQUIRE t.tx_id IS UNIQUE",
-    "CREATE CONSTRAINT cluster_id IF NOT EXISTS "
-    "FOR (c:Cluster) REQUIRE c.cluster_id IS UNIQUE",
-    "CREATE CONSTRAINT cell_id IF NOT EXISTS "
-    "FOR (t:CellTower) REQUIRE t.cell_id IS UNIQUE",
+    "CREATE CONSTRAINT wallet_id IF NOT EXISTS FOR (w:Wallet) REQUIRE w.wallet_id IS UNIQUE",
+    "CREATE CONSTRAINT msisdn IF NOT EXISTS FOR (p:PhoneNumber) REQUIRE p.msisdn IS UNIQUE",
+    "CREATE CONSTRAINT imei IF NOT EXISTS FOR (h:Handset) REQUIRE h.imei IS UNIQUE",
+    "CREATE CONSTRAINT imsi IF NOT EXISTS FOR (s:SIM) REQUIRE s.imsi IS UNIQUE",
+    "CREATE CONSTRAINT agent_id IF NOT EXISTS FOR (a:Agent) REQUIRE a.agent_id IS UNIQUE",
+    "CREATE CONSTRAINT tx_id IF NOT EXISTS FOR (t:Transaction) REQUIRE t.tx_id IS UNIQUE",
+    "CREATE CONSTRAINT cluster_id IF NOT EXISTS FOR (c:Cluster) REQUIRE c.cluster_id IS UNIQUE",
+    "CREATE CONSTRAINT cell_id IF NOT EXISTS FOR (t:CellTower) REQUIRE t.cell_id IS UNIQUE",
 ]
 
 # Supporting indexes for hot read paths.
@@ -42,13 +34,10 @@ INDEX_STATEMENTS: list[str] = [
     "CREATE INDEX wallet_sleeper IF NOT EXISTS FOR (w:Wallet) ON (w.is_sleeper)",
     "CREATE INDEX handset_flagged IF NOT EXISTS FOR (h:Handset) ON (h.flagged)",
     "CREATE INDEX agent_risk IF NOT EXISTS FOR (a:Agent) ON (a.risk_score)",
-    "CREATE INDEX agent_classification IF NOT EXISTS "
-    "FOR (a:Agent) ON (a.classification)",
+    "CREATE INDEX agent_classification IF NOT EXISTS FOR (a:Agent) ON (a.classification)",
     "CREATE INDEX cluster_status IF NOT EXISTS FOR (c:Cluster) ON (c.status)",
-    "CREATE INDEX cluster_confidence IF NOT EXISTS "
-    "FOR (c:Cluster) ON (c.confidence_score)",
-    "CREATE INDEX tx_timestamp IF NOT EXISTS "
-    "FOR (t:Transaction) ON (t.timestamp)",
+    "CREATE INDEX cluster_confidence IF NOT EXISTS FOR (c:Cluster) ON (c.confidence_score)",
+    "CREATE INDEX tx_timestamp IF NOT EXISTS FOR (t:Transaction) ON (t.timestamp)",
     "CREATE INDEX sim_flagged IF NOT EXISTS FOR (s:SIM) ON (s.flagged)",
 ]
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -109,9 +109,7 @@ async def list_operators(db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
 
 
 @router.get("/operators/{operator_id}")
-async def get_operator(
-    operator_id: str, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def get_operator(operator_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     op = await _require_operator(db, operator_id)
     return ok(_operator_to_dict(op))
 
@@ -132,20 +130,14 @@ class OperatorCreateRequest(BaseModel):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-async def register_operator(
-    payload: OperatorCreateRequest, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def register_operator(payload: OperatorCreateRequest, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Onboard a new external operator. Returns the operator record plus
     a freshly-minted API key — show it once, then store the hash only."""
 
     if (
-        await db.execute(
-            select(ExternalOperator).where(ExternalOperator.name == payload.name)
-        )
+        await db.execute(select(ExternalOperator).where(ExternalOperator.name == payload.name))
     ).scalar_one_or_none() is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "operator with this name already exists"
-        )
+        raise HTTPException(status.HTTP_409_CONFLICT, "operator with this name already exists")
     op = ExternalOperator(
         id=_new_id("op"),
         name=payload.name,
@@ -155,8 +147,7 @@ async def register_operator(
         status="pending",
         integration_type=payload.integration_type,
         data_sharing_level=payload.data_sharing_level,
-        masking_rules=payload.masking_rules
-        or {"msisdn": "hash", "imei": "hash", "wallet_id": "partial"},
+        masking_rules=payload.masking_rules or {"msisdn": "hash", "imei": "hash", "wallet_id": "partial"},
         auto_integrate=payload.auto_integrate,
         onboarding_step="awaiting_credentials",
     )
@@ -225,9 +216,7 @@ async def update_operator_config(
 
 
 @router.get("/operators/{operator_id}/health")
-async def operator_health(
-    operator_id: str, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def operator_health(operator_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     op = await _require_operator(db, operator_id)
     inbound = (
         await db.execute(
@@ -259,9 +248,7 @@ async def operator_health(
     "/operators/{operator_id}/test",
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-async def operator_test(
-    operator_id: str, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def operator_test(operator_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Send a no-op test flag through the masking pipeline. Verifies that
     the masking rules + write path are healthy without leaking real data."""
 
@@ -272,18 +259,16 @@ async def operator_test(
         direction="outbound",
         operator_id=op.id,
         identifier_type="msisdn",
-        identifier_masked=_mask_identifier(
-            sample, (op.masking_rules or {}).get("msisdn")
-        ),
+        identifier_masked=_mask_identifier(sample, (op.masking_rules or {}).get("msisdn")),
         identifier_hash=_hash_identifier(sample),
         risk_score=0.0,
         context="integration_test",
-        shared_at=datetime.now(timezone.utc),
+        shared_at=datetime.now(UTC),
         action_taken="test",
-        actioned_at=datetime.now(timezone.utc),
+        actioned_at=datetime.now(UTC),
     )
     db.add(flag)
-    op.last_health_check = datetime.now(timezone.utc)
+    op.last_health_check = datetime.now(UTC)
     op.last_health_status = "healthy"
     await db.commit()
     return ok({"operator_id": op.id, "delivered": True, "test_flag_id": flag.id})
@@ -307,15 +292,11 @@ async def shared_inbound(
         base = base.where(SharedFlag.operator_id == operator_id)
     if action:
         base = base.where(SharedFlag.action_taken == action)
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         (
             await db.execute(
-                base.order_by(desc(SharedFlag.shared_at))
-                .offset((page - 1) * per_page)
-                .limit(per_page)
+                base.order_by(desc(SharedFlag.shared_at)).offset((page - 1) * per_page).limit(per_page)
             )
         )
         .scalars()
@@ -338,15 +319,11 @@ async def shared_outbound(
     base = select(SharedFlag).where(SharedFlag.direction == "outbound")
     if operator_id:
         base = base.where(SharedFlag.operator_id == operator_id)
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         (
             await db.execute(
-                base.order_by(desc(SharedFlag.shared_at))
-                .offset((page - 1) * per_page)
-                .limit(per_page)
+                base.order_by(desc(SharedFlag.shared_at)).offset((page - 1) * per_page).limit(per_page)
             )
         )
         .scalars()
@@ -371,13 +348,11 @@ class FlagActionRequest(BaseModel):
 async def action_inbound_flag(
     flag_id: str, payload: FlagActionRequest, db: DBSessionDep
 ) -> APIResponse[dict[str, Any]]:
-    flag = (
-        await db.execute(select(SharedFlag).where(SharedFlag.id == flag_id))
-    ).scalar_one_or_none()
+    flag = (await db.execute(select(SharedFlag).where(SharedFlag.id == flag_id))).scalar_one_or_none()
     if flag is None or flag.direction != "inbound":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "inbound flag not found")
     flag.action_taken = payload.action
-    flag.actioned_at = datetime.now(timezone.utc)
+    flag.actioned_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(flag)
     return ok(_flag_to_dict(flag))
@@ -406,18 +381,12 @@ async def chamber_status() -> APIResponse[dict[str, Any]]:
 @router.get("/chamber/metrics")
 async def chamber_metrics(db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     inbound = (
-        await db.execute(
-            select(func.count(SharedFlag.id)).where(SharedFlag.direction == "inbound")
-        )
+        await db.execute(select(func.count(SharedFlag.id)).where(SharedFlag.direction == "inbound"))
     ).scalar_one()
     outbound = (
-        await db.execute(
-            select(func.count(SharedFlag.id)).where(SharedFlag.direction == "outbound")
-        )
+        await db.execute(select(func.count(SharedFlag.id)).where(SharedFlag.direction == "outbound"))
     ).scalar_one()
-    operators = (
-        await db.execute(select(func.count(ExternalOperator.id)))
-    ).scalar_one()
+    operators = (await db.execute(select(func.count(ExternalOperator.id)))).scalar_one()
     return ok(
         {
             "operators_connected": int(operators),
@@ -448,20 +417,16 @@ async def _require_operator(db: AsyncSession, operator_id: str) -> ExternalOpera
 
 async def _resolve_api_key(db: AsyncSession, raw: str | None) -> APIKey:
     if not raw:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "missing X-API-Key header"
-        )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing X-API-Key header")
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     key = (
-        await db.execute(
-            select(APIKey).where(APIKey.key_hash == digest, APIKey.active.is_(True))
-        )
+        await db.execute(select(APIKey).where(APIKey.key_hash == digest, APIKey.active.is_(True)))
     ).scalar_one_or_none()
     if key is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid api key")
-    if key.expires_at is not None and key.expires_at < datetime.now(timezone.utc):
+    if key.expires_at is not None and key.expires_at < datetime.now(UTC):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "api key expired")
-    key.last_used_at = datetime.now(timezone.utc)
+    key.last_used_at = datetime.now(UTC)
     await db.commit()
     return key
 
@@ -497,7 +462,7 @@ async def external_post_flag(
         identifier_hash=_hash_identifier(payload.identifier),
         risk_score=payload.risk_score,
         context=payload.context,
-        shared_at=payload.timestamp or datetime.now(timezone.utc),
+        shared_at=payload.timestamp or datetime.now(UTC),
     )
     db.add(flag)
     await db.commit()
@@ -514,9 +479,7 @@ async def external_post_flag(
             "context": flag.context,
         },
     )
-    return ok(
-        {"flag_id": flag.id, "received_at": flag.shared_at.isoformat(), "queued": True}
-    )
+    return ok({"flag_id": flag.id, "received_at": flag.shared_at.isoformat(), "queued": True})
 
 
 class ExternalFlagQuery(BaseModel):
@@ -598,7 +561,7 @@ async def external_post_intelligence(
             identifier_hash=_hash_identifier(item.identifier),
             risk_score=max(item.risk_score, payload.confidence),
             context=payload.context or item.context,
-            shared_at=item.timestamp or datetime.now(timezone.utc),
+            shared_at=item.timestamp or datetime.now(UTC),
         )
         db.add(f)
         flag_ids.append(f.id)

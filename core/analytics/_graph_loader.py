@@ -12,7 +12,6 @@ import networkx as nx
 
 from core.graph.client import Neo4jClient, get_neo4j_client
 
-
 _CLUSTER_GRAPH_QUERY = """
 MATCH (c:Cluster {cluster_id: $cluster_id})
 OPTIONAL MATCH (n)-[:BELONGS_TO]->(c)
@@ -40,9 +39,7 @@ RETURN
 """
 
 
-async def load_cluster_subgraph(
-    cluster_id: str, *, client: Neo4jClient | None = None
-) -> nx.MultiDiGraph:
+async def load_cluster_subgraph(cluster_id: str, *, client: Neo4jClient | None = None) -> nx.MultiDiGraph:
     """Return a directed multi-graph for the cluster, with node attrs
     ``labels`` and ``risk_score`` and edge attrs ``type``, ``strength``,
     ``amount``."""

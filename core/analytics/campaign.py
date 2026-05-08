@@ -16,7 +16,7 @@ decides whether to promote a candidate into a tracked campaign.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from config.logging import get_logger
@@ -26,7 +26,9 @@ logger = get_logger(__name__)
 
 
 async def sim_registration_bursts(
-    *, window_hours: int = 1, min_count: int = 8,
+    *,
+    window_hours: int = 1,
+    min_count: int = 8,
     client: Neo4jClient | None = None,
 ) -> list[dict[str, Any]]:
     c = client or get_neo4j_client()
@@ -61,7 +63,9 @@ async def sim_registration_bursts(
 
 
 async def wallet_activation_bursts(
-    *, window_hours: int = 6, min_count: int = 10,
+    *,
+    window_hours: int = 6,
+    min_count: int = 10,
     client: Neo4jClient | None = None,
 ) -> list[dict[str, Any]]:
     c = client or get_neo4j_client()
@@ -98,7 +102,9 @@ async def wallet_activation_bursts(
 
 
 async def transaction_bursts_at_agent(
-    *, window_minutes: int = 30, min_count: int = 6,
+    *,
+    window_minutes: int = 30,
+    min_count: int = 6,
     client: Neo4jClient | None = None,
 ) -> list[dict[str, Any]]:
     """Agents receiving more than ``min_count`` cashouts from distinct
@@ -150,5 +156,5 @@ async def detect_campaigns() -> dict[str, Any]:
         "sim_bursts": await sim_registration_bursts(client=client),
         "wallet_bursts": await wallet_activation_bursts(client=client),
         "agent_cashout_bursts": await transaction_bursts_at_agent(client=client),
-        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "scanned_at": datetime.now(UTC).isoformat(),
     }

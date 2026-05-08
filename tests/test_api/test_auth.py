@@ -23,7 +23,6 @@ from api.auth.rbac import (
     _has_role,
 )
 
-
 # ---------------------------------------------------------------------------
 # Password hashing
 # ---------------------------------------------------------------------------
@@ -63,9 +62,7 @@ def test_needs_rehash_handles_garbage() -> None:
 
 
 def test_create_and_decode_token_round_trip() -> None:
-    token, exp = create_access_token(
-        user_id="user-abc", username="ada", role="investigator"
-    )
+    token, exp = create_access_token(user_id="user-abc", username="ada", role="investigator")
     claims = decode_token(token)
     assert claims.sub == "user-abc"
     assert claims.username == "ada"

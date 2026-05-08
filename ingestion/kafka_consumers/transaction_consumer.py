@@ -142,9 +142,7 @@ class TransactionConsumer(KafkaConsumerBase):
             },
         )
 
-    async def _wallet_to_agent(
-        self, event: dict[str, Any], client, rel: str
-    ) -> None:
+    async def _wallet_to_agent(self, event: dict[str, Any], client, rel: str) -> None:
         wallet = event.get("wallet_id") or event.get("src_wallet_id")
         agent = event.get("agent_id")
         if not wallet or not agent:

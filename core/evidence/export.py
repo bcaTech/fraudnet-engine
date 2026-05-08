@@ -12,7 +12,7 @@ upstream in :mod:`core.evidence.builder`.
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from reportlab.lib import colors
@@ -52,12 +52,8 @@ def _styles() -> dict[str, ParagraphStyle]:
             spaceBefore=8,
             spaceAfter=4,
         ),
-        "body": ParagraphStyle(
-            "EvidenceBody", parent=base["BodyText"], fontSize=9, leading=12
-        ),
-        "small": ParagraphStyle(
-            "EvidenceSmall", parent=base["BodyText"], fontSize=8, leading=10
-        ),
+        "body": ParagraphStyle("EvidenceBody", parent=base["BodyText"], fontSize=9, leading=12),
+        "small": ParagraphStyle("EvidenceSmall", parent=base["BodyText"], fontSize=8, leading=10),
     }
 
 
@@ -115,9 +111,7 @@ def _members_table(members: list[dict[str, Any]]) -> Table:
 
 
 def _agents_table(agents: list[dict[str, Any]]) -> Table:
-    data: list[list[Any]] = [
-        ["Agent ID", "Name", "Area", "Class", "Risk", "Cashouts"]
-    ]
+    data: list[list[Any]] = [["Agent ID", "Name", "Area", "Class", "Risk", "Cashouts"]]
     for a in agents:
         data.append(
             [
@@ -139,9 +133,7 @@ def _agents_table(agents: list[dict[str, Any]]) -> Table:
 
 
 def _paths_table(paths: list[dict[str, Any]]) -> Table:
-    data: list[list[Any]] = [
-        ["Path", "Hops", "Bottleneck", "Cashout amt", "Agent", "Area"]
-    ]
+    data: list[list[Any]] = [["Path", "Hops", "Bottleneck", "Cashout amt", "Agent", "Area"]]
     for p in paths:
         path_str = " → ".join(p.get("path") or [])[:60]
         data.append(
@@ -210,7 +202,7 @@ def render_pdf(payload: dict[str, Any]) -> tuple[bytes, int]:
     )
     story.append(
         Paragraph(
-            f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+            f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}",
             styles["small"],
         )
     )
@@ -248,9 +240,7 @@ def render_pdf(payload: dict[str, Any]) -> tuple[bytes, int]:
     story.append(PageBreak())
 
     # --- Linked agents -------------------------------------------------
-    story.append(
-        Paragraph(f"Linked cash-out agents ({len(payload['linked_agents'])})", styles["h1"])
-    )
+    story.append(Paragraph(f"Linked cash-out agents ({len(payload['linked_agents'])})", styles["h1"]))
     if payload["linked_agents"]:
         story.append(_agents_table(payload["linked_agents"]))
     else:
@@ -283,9 +273,7 @@ def render_pdf(payload: dict[str, Any]) -> tuple[bytes, int]:
     story.append(PageBreak())
 
     # --- Timeline -----------------------------------------------------
-    story.append(
-        Paragraph(f"Event timeline ({len(payload['timeline'])} events)", styles["h1"])
-    )
+    story.append(Paragraph(f"Event timeline ({len(payload['timeline'])} events)", styles["h1"]))
     if payload["timeline"]:
         story.append(_timeline_table(payload["timeline"]))
     else:

@@ -8,7 +8,7 @@ Phase 4 multi-tenancy and is plumbed through but unused for now.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -41,10 +41,8 @@ def create_access_token(
     """Mint a signed access token. Returns ``(token, expires_at)``."""
 
     settings = get_settings()
-    now = datetime.now(timezone.utc)
-    expires_at = now + (
-        expires_in or timedelta(minutes=settings.jwt_expire_minutes)
-    )
+    now = datetime.now(UTC)
+    expires_at = now + (expires_in or timedelta(minutes=settings.jwt_expire_minutes))
     payload: dict[str, Any] = {
         "sub": user_id,
         "username": username,
@@ -78,9 +76,7 @@ def decode_token(token: str) -> TokenClaims:
     if "sub" not in payload or "role" not in payload:
         raise AuthError("token missing required claims")
     extra = {
-        k: v
-        for k, v in payload.items()
-        if k not in {"sub", "username", "role", "tenant_id", "iat", "exp"}
+        k: v for k, v in payload.items() if k not in {"sub", "username", "role", "tenant_id", "iat", "exp"}
     }
     return TokenClaims(
         sub=str(payload["sub"]),

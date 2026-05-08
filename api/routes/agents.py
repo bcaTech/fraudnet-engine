@@ -43,9 +43,7 @@ def _risk_band(score: float) -> str:
 @router.get("/map")
 async def agents_map(
     neo4j: Neo4jDep,
-    classification: str | None = Query(
-        None, pattern="^(clean|incidental|exploited|complicit)$"
-    ),
+    classification: str | None = Query(None, pattern="^(clean|incidental|exploited|complicit)$"),
     min_risk: float | None = Query(None, ge=0.0, le=1.0),
 ) -> APIResponse[dict[str, Any]]:
     """GeoJSON ``FeatureCollection`` for the agent risk map."""
@@ -104,9 +102,7 @@ async def list_agents(
     neo4j: Neo4jDep,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=200),
-    classification: str | None = Query(
-        None, pattern="^(clean|incidental|exploited|complicit)$"
-    ),
+    classification: str | None = Query(None, pattern="^(clean|incidental|exploited|complicit)$"),
     area: str | None = None,
     min_risk: float | None = Query(None, ge=0.0, le=1.0),
     suspended: bool | None = None,
@@ -148,9 +144,8 @@ async def list_agents(
         params,
     )
 
-    total = (
-        await neo4j.execute_read(
-            """
+    total = await neo4j.execute_read(
+        """
             MATCH (a:Agent)
             WHERE ($classification IS NULL OR a.classification = $classification)
               AND ($area IS NULL OR a.area_name = $area)
@@ -158,8 +153,7 @@ async def list_agents(
               AND ($suspended IS NULL OR coalesce(a.suspended, false) = $suspended)
             RETURN count(a) AS n
             """,
-            {k: v for k, v in params.items() if k not in ("skip", "limit")},
-        )
+        {k: v for k, v in params.items() if k not in ("skip", "limit")},
     )
     total_n = int(total[0]["n"]) if total else 0
 

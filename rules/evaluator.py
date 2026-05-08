@@ -28,7 +28,8 @@ aren't yet wired don't trigger, they just don't match.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 LOGICAL_OPERATORS: tuple[str, ...] = ("AND", "OR", "NOT")
 
@@ -101,9 +102,7 @@ OPERATORS: dict[str, Callable[[Any, Any], bool]] = {
     "in": lambda a, b: a in b if isinstance(b, (list, tuple, set)) else False,
     "not_in": lambda a, b: a not in b if isinstance(b, (list, tuple, set)) else True,
     "contains": (
-        lambda a, b: (b in a)
-        if isinstance(a, (str, list, tuple, set, dict)) and a is not None
-        else False
+        lambda a, b: (b in a) if isinstance(a, (str, list, tuple, set, dict)) and a is not None else False
     ),
     "is_null": lambda a, _b: a is None,
     "is_not_null": lambda a, _b: a is not None,

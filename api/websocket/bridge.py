@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Iterable
+from collections.abc import Iterable
 
 import redis.asyncio as redis_async
 
@@ -110,9 +110,7 @@ class RedisBridge:
         backoff = 0.5
         while not self._stopped.is_set():
             try:
-                message = await self._pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=1.0
-                )
+                message = await self._pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message is None:
                     backoff = 0.5
                     continue

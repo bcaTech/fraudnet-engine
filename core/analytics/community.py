@@ -102,9 +102,7 @@ def _summarise(communities: list[set[str]]) -> dict[str, Any]:
     }
 
 
-async def detect_louvain(
-    cluster_id: str, *, persist: bool = True
-) -> dict[str, Any]:
+async def detect_louvain(cluster_id: str, *, persist: bool = True) -> dict[str, Any]:
     g = await load_cluster_subgraph(cluster_id)
     if g.number_of_nodes() == 0:
         return {"cluster_id": cluster_id, "community_count": 0, "skipped": True}
@@ -115,9 +113,7 @@ async def detect_louvain(
     return {"cluster_id": cluster_id, "algorithm": "louvain", **_summarise(communities)}
 
 
-async def detect_label_propagation(
-    cluster_id: str, *, persist: bool = True
-) -> dict[str, Any]:
+async def detect_label_propagation(cluster_id: str, *, persist: bool = True) -> dict[str, Any]:
     g = await load_cluster_subgraph(cluster_id)
     if g.number_of_nodes() == 0:
         return {"cluster_id": cluster_id, "community_count": 0, "skipped": True}
@@ -128,9 +124,7 @@ async def detect_label_propagation(
     return {"cluster_id": cluster_id, "algorithm": "label_prop", **_summarise(communities)}
 
 
-async def detect_for_active_clusters(
-    *, algorithm: str = "louvain", limit: int = 50
-) -> dict[str, Any]:
+async def detect_for_active_clusters(*, algorithm: str = "louvain", limit: int = 50) -> dict[str, Any]:
     """Run community detection across every active cluster. Returns a
     summary dict suitable for logging / Celery result inspection."""
 

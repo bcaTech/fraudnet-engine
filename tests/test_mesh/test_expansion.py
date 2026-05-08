@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -44,9 +43,7 @@ class _FakeNeo4j:
 
 def test_expansion_raises_when_seed_not_found() -> None:
     fake = _FakeNeo4j({"MATCH (n:Wallet": []})
-    seed = Seed(
-        node_id="MOMO-MISSING", node_type="wallet", confidence=0.8, source="analyst"
-    )
+    seed = Seed(node_id="MOMO-MISSING", node_type="wallet", confidence=0.8, source="analyst")
 
     async def run():
         await expand_from_seed(seed, client=fake, persist=False)
@@ -74,9 +71,7 @@ def test_expansion_returns_seed_only_when_no_neighbours() -> None:
             "WHERE elementId(n)": [],
         }
     )
-    seed = Seed(
-        node_id="MOMO-001", node_type="wallet", confidence=0.8, source="analyst"
-    )
+    seed = Seed(node_id="MOMO-001", node_type="wallet", confidence=0.8, source="analyst")
 
     result = asyncio.run(expand_from_seed(seed, client=fake, persist=False))
     assert result.node_count == 1

@@ -54,12 +54,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
 
     # ---- PostgreSQL ------------------------------------------------------
-    database_url: str = (
-        "postgresql+asyncpg://fraudnet:fraudnet_dev_pw@postgres:5432/fraudnet"
-    )
-    database_url_sync: str = (
-        "postgresql://fraudnet:fraudnet_dev_pw@postgres:5432/fraudnet"
-    )
+    database_url: str = "postgresql+asyncpg://fraudnet:fraudnet_dev_pw@postgres:5432/fraudnet"
+    database_url_sync: str = "postgresql://fraudnet:fraudnet_dev_pw@postgres:5432/fraudnet"
     db_pool_size: int = 10
     db_max_overflow: int = 20
 
@@ -71,9 +67,7 @@ class Settings(BaseSettings):
     minio_secure: bool = False
 
     # ---- Auth ------------------------------------------------------------
-    jwt_secret: SecretStr = SecretStr(
-        "please-change-me-in-prod-this-is-a-dev-only-default"
-    )
+    jwt_secret: SecretStr = SecretStr("please-change-me-in-prod-this-is-a-dev-only-default")
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
     auth_required: bool = False

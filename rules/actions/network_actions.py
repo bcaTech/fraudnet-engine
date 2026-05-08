@@ -58,9 +58,7 @@ async def _notify_external_operator(ctx: ActionContext) -> ActionResult:
     )
     if not rows:
         return ActionResult(ok=False, detail={"target": ctx.target}, error="wallet not found")
-    return ActionResult(
-        ok=True, detail={"target": ctx.target, "operator": operator, "queued": True}
-    )
+    return ActionResult(ok=True, detail={"target": ctx.target, "operator": operator, "queued": True})
 
 
 def register_all(reg: ActionRegistry) -> None:

@@ -8,7 +8,7 @@ in real time.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ async def _publish_alert_event(event: str, payload: dict) -> None:
 
     try:
         from api.websocket.publisher import CH_ALERTS, publish
+
         await publish(CH_ALERTS, event, payload)
     except Exception:  # noqa: BLE001 — never let WS broadcast break a rule
         pass
@@ -105,7 +106,7 @@ async def _create_alert(
 ) -> Alert:
     alert = Alert(
         id=f"alert-{uuid.uuid4().hex[:12]}",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         type="rule_escalation",
         severity=severity,
         title=title,
@@ -188,9 +189,7 @@ async def _flag_for_law_enforcement(ctx: ActionContext) -> ActionResult:
             target_id=ctx.target,
             severity="critical",
             title=f"LE referral candidate: {rule_name}",
-            description=(
-                f"{ctx.target_type} {ctx.target} flagged for law-enforcement review."
-            ),
+            description=(f"{ctx.target_type} {ctx.target} flagged for law-enforcement review."),
             cluster_id=cluster_id if isinstance(cluster_id, str) else None,
         )
     return ActionResult(ok=True, detail={"target": ctx.target, "alert_id": alert.id})

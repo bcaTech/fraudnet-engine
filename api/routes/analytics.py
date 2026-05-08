@@ -8,7 +8,7 @@ windows).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -34,7 +34,7 @@ async def get_kpis(
 ) -> APIResponse[dict[str, Any]]:
     """Headline KPIs for the analytics dashboard."""
 
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
 
     graph_rows = await neo4j.execute_read(
         """
@@ -80,23 +80,15 @@ async def get_kpis(
 
     # Postgres counts: alerts in window, rule triggers in window, completed takedowns.
     alerts_total = (
-        await db.execute(
-            select(func.count(Alert.id)).where(Alert.created_at >= since)
-        )
+        await db.execute(select(func.count(Alert.id)).where(Alert.created_at >= since))
     ).scalar_one()
     alerts_critical = (
         await db.execute(
-            select(func.count(Alert.id)).where(
-                Alert.created_at >= since, Alert.severity == "critical"
-            )
+            select(func.count(Alert.id)).where(Alert.created_at >= since, Alert.severity == "critical")
         )
     ).scalar_one()
     triggers_total = (
-        await db.execute(
-            select(func.count(RuleTrigger.id)).where(
-                RuleTrigger.triggered_at >= since
-            )
-        )
+        await db.execute(select(func.count(RuleTrigger.id)).where(RuleTrigger.triggered_at >= since))
     ).scalar_one()
     takedowns_completed = (
         await db.execute(
@@ -105,9 +97,7 @@ async def get_kpis(
             )
         )
     ).scalar_one()
-    rules_live = (
-        await db.execute(select(func.count(Rule.id)).where(Rule.status == "live"))
-    ).scalar_one()
+    rules_live = (await db.execute(select(func.count(Rule.id)).where(Rule.status == "live"))).scalar_one()
 
     return ok(
         {
@@ -148,7 +138,7 @@ async def clusters_over_time(
 ) -> APIResponse[dict[str, Any]]:
     """Daily count of clusters seeded over the window."""
 
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
     rows = await neo4j.execute_read(
         """
         MATCH (c:Cluster)
@@ -182,7 +172,7 @@ async def fraud_value_over_time(
     Proxy until evidence packages can attribute exact recoveries.
     """
 
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
     rows = await neo4j.execute_read(
         """
         MATCH (t:Transaction)

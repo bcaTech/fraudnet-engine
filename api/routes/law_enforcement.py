@@ -9,16 +9,14 @@ enforcement.
 
 from __future__ import annotations
 
-import hashlib
-import io
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from api.auth.rbac import (
@@ -82,15 +80,11 @@ class AgencyCreateRequest(BaseModel):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-async def create_agency(
-    payload: AgencyCreateRequest, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def create_agency(payload: AgencyCreateRequest, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     if (
         await db.execute(select(LEAgency).where(LEAgency.name == payload.name))
     ).scalar_one_or_none() is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "agency with this name already exists"
-        )
+        raise HTTPException(status.HTTP_409_CONFLICT, "agency with this name already exists")
     a = LEAgency(
         id=_new_id("agency"),
         name=payload.name,
@@ -163,15 +157,11 @@ async def list_cases(
         base = base.where(LECase.status == status_filter)
     if agency_id:
         base = base.where(LECase.agency_id == agency_id)
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         (
             await db.execute(
-                base.order_by(LECase.created_at.desc())
-                .offset((page - 1) * per_page)
-                .limit(per_page)
+                base.order_by(LECase.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
             )
         )
         .scalars()
@@ -205,9 +195,7 @@ async def get_case(case_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]
 async def create_case(
     payload: CaseCreateRequest, db: DBSessionDep, neo4j: Neo4jDep
 ) -> APIResponse[dict[str, Any]]:
-    agency = (
-        await db.execute(select(LEAgency).where(LEAgency.id == payload.agency_id))
-    ).scalar_one_or_none()
+    agency = (await db.execute(select(LEAgency).where(LEAgency.id == payload.agency_id))).scalar_one_or_none()
     if agency is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown agency_id")
 
@@ -223,9 +211,7 @@ async def create_case(
     found = {r["cluster_id"] for r in rows}
     missing = [cid for cid in payload.cluster_ids if cid not in found]
     if missing:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"unknown cluster_ids: {missing}"
-        )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unknown cluster_ids: {missing}")
 
     c = LECase(
         id=_new_id("case"),
@@ -233,7 +219,7 @@ async def create_case(
         status=payload.status,
         cluster_ids=payload.cluster_ids,
         created_by="system",  # TODO: set from authenticated user
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         assigned_officer=payload.assigned_officer or agency.contact_name,
         officer_contact=payload.officer_contact or agency.contact_email,
         notes=payload.notes,
@@ -286,9 +272,7 @@ class MessageCreateRequest(BaseModel):
 
 
 @router.get("/cases/{case_id}/messages")
-async def list_messages(
-    case_id: str, db: DBSessionDep
-) -> APIResponse[list[dict[str, Any]]]:
+async def list_messages(case_id: str, db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
     rows = (
         (
             await db.execute(
@@ -323,9 +307,7 @@ async def list_messages(
 async def post_message(
     case_id: str, payload: MessageCreateRequest, db: DBSessionDep
 ) -> APIResponse[dict[str, Any]]:
-    if (
-        await db.execute(select(LECase).where(LECase.id == case_id))
-    ).scalar_one_or_none() is None:
+    if (await db.execute(select(LECase).where(LECase.id == case_id))).scalar_one_or_none() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "case not found")
     m = LECaseMessage(
         id=_new_id("msg"),
@@ -333,7 +315,7 @@ async def post_message(
         sender_id="system",  # TODO: from auth
         sender_role=payload.sender_role,
         content=payload.content,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=payload.attachments,
     )
     db.add(m)
@@ -357,21 +339,19 @@ async def post_message(
 
 
 @router.get("/cases/{case_id}/evidence")
-async def list_case_evidence(
-    case_id: str, db: DBSessionDep
-) -> APIResponse[list[dict[str, Any]]]:
-    case = (
-        await db.execute(select(LECase).where(LECase.id == case_id))
-    ).scalar_one_or_none()
+async def list_case_evidence(case_id: str, db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
+    case = (await db.execute(select(LECase).where(LECase.id == case_id))).scalar_one_or_none()
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "case not found")
     rows = (
         (
             await db.execute(
-                select(EvidencePackage).where(
+                select(EvidencePackage)
+                .where(
                     (EvidencePackage.case_id == case_id)
                     | (EvidencePackage.cluster_id.in_(case.cluster_ids or []))
-                ).order_by(EvidencePackage.generated_at.desc())
+                )
+                .order_by(EvidencePackage.generated_at.desc())
             )
         )
         .scalars()
@@ -400,20 +380,14 @@ async def list_case_evidence(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
 )
-async def generate_case_evidence(
-    case_id: str, db: DBSessionDep
-) -> APIResponse[list[dict[str, Any]]]:
+async def generate_case_evidence(case_id: str, db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
     """Generate (or regenerate) one evidence package per cluster on the case."""
 
-    case = (
-        await db.execute(select(LECase).where(LECase.id == case_id))
-    ).scalar_one_or_none()
+    case = (await db.execute(select(LECase).where(LECase.id == case_id))).scalar_one_or_none()
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "case not found")
     if not case.cluster_ids:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "case has no clusters attached"
-        )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "case has no clusters attached")
     built = []
     for cid in case.cluster_ids:
         pkg = await build_for_cluster(cid, case_id=case_id, generated_by="system")
@@ -430,23 +404,12 @@ async def generate_case_evidence(
 
 
 @router.get("/cases/{case_id}/evidence/{pkg_id}/download")
-async def download_case_evidence(
-    case_id: str, pkg_id: str, db: DBSessionDep
-) -> StreamingResponse:
-    pkg = (
-        await db.execute(
-            select(EvidencePackage).where(EvidencePackage.id == pkg_id)
-        )
-    ).scalar_one_or_none()
+async def download_case_evidence(case_id: str, pkg_id: str, db: DBSessionDep) -> StreamingResponse:
+    pkg = (await db.execute(select(EvidencePackage).where(EvidencePackage.id == pkg_id))).scalar_one_or_none()
     if pkg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "evidence package not found")
-    case = (
-        await db.execute(select(LECase).where(LECase.id == case_id))
-    ).scalar_one_or_none()
-    if case is None or (
-        pkg.case_id != case_id
-        and pkg.cluster_id not in (case.cluster_ids or [])
-    ):
+    case = (await db.execute(select(LECase).where(LECase.id == case_id))).scalar_one_or_none()
+    if case is None or (pkg.case_id != case_id and pkg.cluster_id not in (case.cluster_ids or [])):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "package not on this case")
 
     pdf_bytes = await _evidence_bytes(pkg)
@@ -474,7 +437,7 @@ async def _evidence_bytes(pkg: EvidencePackage) -> bytes:
             secret_key=s.minio_secret_key.get_secret_value(),
             secure=s.minio_secure,
         )
-        without_scheme = pkg.file_path[len("s3://"):]
+        without_scheme = pkg.file_path[len("s3://") :]
         bucket, _, key = without_scheme.partition("/")
         response = client.get_object(bucket, key)
         try:
@@ -509,15 +472,11 @@ def _outcome_to_dict(o: LEOutcome) -> dict[str, Any]:
 
 
 @router.get("/cases/{case_id}/outcomes")
-async def list_outcomes(
-    case_id: str, db: DBSessionDep
-) -> APIResponse[list[dict[str, Any]]]:
+async def list_outcomes(case_id: str, db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
     rows = (
         (
             await db.execute(
-                select(LEOutcome)
-                .where(LEOutcome.case_id == case_id)
-                .order_by(LEOutcome.occurred_at.desc())
+                select(LEOutcome).where(LEOutcome.case_id == case_id).order_by(LEOutcome.occurred_at.desc())
             )
         )
         .scalars()
@@ -541,9 +500,7 @@ class OutcomeCreateRequest(BaseModel):
 async def add_outcome(
     case_id: str, payload: OutcomeCreateRequest, db: DBSessionDep
 ) -> APIResponse[dict[str, Any]]:
-    if (
-        await db.execute(select(LECase).where(LECase.id == case_id))
-    ).scalar_one_or_none() is None:
+    if (await db.execute(select(LECase).where(LECase.id == case_id))).scalar_one_or_none() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "case not found")
     o = LEOutcome(
         id=_new_id("outcome"),
@@ -551,7 +508,7 @@ async def add_outcome(
         outcome_type=payload.outcome_type,
         detail=payload.detail,
         amount_recovered=payload.amount_recovered,
-        occurred_at=payload.occurred_at or datetime.now(timezone.utc),
+        occurred_at=payload.occurred_at or datetime.now(UTC),
         reported_by="system",
     )
     db.add(o)
@@ -571,9 +528,7 @@ class InboundIntelRequest(BaseModel):
     agency_id: str | None = None
     summary: str = Field(..., min_length=2, max_length=500)
     severity: str = Field("high", pattern="^(low|medium|high|critical)$")
-    identifier_type: str | None = Field(
-        None, pattern="^(msisdn|wallet|imei|imsi)$"
-    )
+    identifier_type: str | None = Field(None, pattern="^(msisdn|wallet|imei|imsi)$")
     identifier: str | None = None
     cluster_id: str | None = None
     metadata: dict[str, Any] | None = None
@@ -584,9 +539,7 @@ class InboundIntelRequest(BaseModel):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role(ROLE_INVESTIGATOR, ROLE_LAW_ENFORCEMENT))],
 )
-async def inbound_intel(
-    payload: InboundIntelRequest, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def inbound_intel(payload: InboundIntelRequest, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Receive intelligence from law enforcement and create an alert.
 
     Real implementations would also enqueue a Seed for the mesh-expansion
@@ -600,7 +553,7 @@ async def inbound_intel(
 
     alert = Alert(
         id=_new_id("alert"),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         type="le_inbound_intel",
         severity=payload.severity,
         title=f"LE intel: {payload.summary[:80]}",

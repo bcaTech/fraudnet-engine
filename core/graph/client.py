@@ -68,12 +68,8 @@ class Neo4jClient:
     # -- session helpers --------------------------------------------------
 
     @asynccontextmanager
-    async def session(
-        self, database: str | None = None
-    ) -> AsyncIterator[AsyncSession]:
-        async with self.driver.session(
-            database=database or self._settings.neo4j_database
-        ) as s:
+    async def session(self, database: str | None = None) -> AsyncIterator[AsyncSession]:
+        async with self.driver.session(database=database or self._settings.neo4j_database) as s:
             yield s
 
     # -- query helpers ----------------------------------------------------
@@ -113,6 +109,7 @@ class Neo4jClient:
         """Run a sequence of write statements inside a single transaction."""
 
         async with self.session(database=database) as session:
+
             async def _run(tx):  # type: ignore[no-untyped-def]
                 for cypher, params in statements:
                     await tx.run(cypher, dict(params))

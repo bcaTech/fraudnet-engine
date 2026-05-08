@@ -20,7 +20,7 @@ mesh expansion uses these as starting points (downstream task in
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -85,8 +85,7 @@ class SafeguardConsumer(KafkaConsumerBase):
                     else "Recipient declined transfer (Don't Know You)"
                 ),
                 description=(
-                    f"SafeGuard event '{kind}' from {sender_wallet} "
-                    f"→ {recipient_wallet or 'unknown'}."
+                    f"SafeGuard event '{kind}' from {sender_wallet} → {recipient_wallet or 'unknown'}."
                 ),
                 metadata=event,
             )
@@ -121,19 +120,21 @@ class SafeguardConsumer(KafkaConsumerBase):
         async with get_async_session() as db:
             existing = (
                 await db.execute(
-                    select(Alert).where(
+                    select(Alert)
+                    .where(
                         Alert.target_type == "wallet",
                         Alert.target_id == wallet_id,
                         Alert.type == "safeguard_seed",
                         Alert.acknowledged.is_(False),
-                    ).limit(1)
+                    )
+                    .limit(1)
                 )
             ).scalar_one_or_none()
             if existing is not None:
                 return
             alert = Alert(
                 id=f"alert-{uuid.uuid4().hex[:12]}",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 type="safeguard_seed",
                 severity=severity,
                 title=title,

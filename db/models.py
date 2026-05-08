@@ -12,7 +12,7 @@ dev until the first Alembic migration lands.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -29,7 +29,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -63,9 +63,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     type: Mapped[str] = mapped_column(String(64), index=True)
     severity: Mapped[str] = mapped_column(String(16), index=True)
     title: Mapped[str] = mapped_column(String(255))
@@ -113,9 +111,7 @@ class RuleTrigger(Base):
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     rule_id: Mapped[str] = mapped_column(String(40), ForeignKey("rules.id"), index=True)
-    triggered_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, index=True
-    )
+    triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     event_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     node_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     node_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -148,9 +144,7 @@ class Takedown(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    steps: Mapped[list["TakedownStep"]] = relationship(
-        back_populates="takedown", cascade="all, delete-orphan"
-    )
+    steps: Mapped[list[TakedownStep]] = relationship(back_populates="takedown", cascade="all, delete-orphan")
 
 
 class TakedownStep(Base):
@@ -199,9 +193,7 @@ class LECase(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     agency: Mapped[LEAgency] = relationship()
-    messages: Mapped[list["LECaseMessage"]] = relationship(
-        back_populates="case", cascade="all, delete-orphan"
-    )
+    messages: Mapped[list[LECaseMessage]] = relationship(back_populates="case", cascade="all, delete-orphan")
 
 
 class LECaseMessage(Base):
@@ -222,9 +214,7 @@ class LEOutcome(Base):
     __tablename__ = "le_outcomes"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    case_id: Mapped[str] = mapped_column(
-        String(40), ForeignKey("le_cases.id"), index=True
-    )
+    case_id: Mapped[str] = mapped_column(String(40), ForeignKey("le_cases.id"), index=True)
     outcome_type: Mapped[str] = mapped_column(String(40))
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount_recovered: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -277,9 +267,7 @@ class SharedFlag(Base):
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     direction: Mapped[str] = mapped_column(String(12), index=True)  # inbound|outbound
-    operator_id: Mapped[str] = mapped_column(
-        String(40), ForeignKey("external_operators.id"), index=True
-    )
+    operator_id: Mapped[str] = mapped_column(String(40), ForeignKey("external_operators.id"), index=True)
     identifier_type: Mapped[str] = mapped_column(String(24))
     identifier_masked: Mapped[str | None] = mapped_column(String(160), nullable=True)
     identifier_hash: Mapped[str] = mapped_column(String(80))
@@ -320,9 +308,7 @@ class EvidenceAccess(Base):
     __tablename__ = "evidence_access"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    package_id: Mapped[str] = mapped_column(
-        String(40), ForeignKey("evidence_packages.id"), index=True
-    )
+    package_id: Mapped[str] = mapped_column(String(40), ForeignKey("evidence_packages.id"), index=True)
     accessed_by: Mapped[str] = mapped_column(String(40))
     accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     user_role: Mapped[str | None] = mapped_column(String(40), nullable=True)

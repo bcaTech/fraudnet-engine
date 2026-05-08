@@ -30,7 +30,7 @@ import random
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -83,23 +83,23 @@ COUNTS = Counts()
 
 # (city_name, lat, lng, weight, radius_km)
 CITIES: list[tuple[str, float, float, float, float]] = [
-    ("Accra",      5.5563, -0.1969, 0.45, 18.0),
-    ("Kumasi",     6.6885, -1.6244, 0.22, 14.0),
-    ("Tamale",     9.4035, -0.8423, 0.10, 10.0),
+    ("Accra", 5.5563, -0.1969, 0.45, 18.0),
+    ("Kumasi", 6.6885, -1.6244, 0.22, 14.0),
+    ("Tamale", 9.4035, -0.8423, 0.10, 10.0),
     ("Cape Coast", 5.1054, -1.2466, 0.10, 8.0),
-    ("Takoradi",   4.8845, -1.7554, 0.13, 9.0),
+    ("Takoradi", 4.8845, -1.7554, 0.13, 9.0),
 ]
 
 GHANA_MCC_MNC = "62001"  # MCC 620 (Ghana) + MNC 01 (MTN)
 GHANA_MSISDN_PREFIX = "+23324"  # MTN-style mobile prefix
 
 HANDSET_MAKES = [
-    ("Tecno",   ["Camon 19", "Spark 9", "Pop 5", "Pova Neo 2"]),
+    ("Tecno", ["Camon 19", "Spark 9", "Pop 5", "Pova Neo 2"]),
     ("Infinix", ["Hot 12", "Smart 6", "Note 12", "Zero X Pro"]),
     ("Samsung", ["Galaxy A04", "Galaxy A14", "Galaxy A24", "Galaxy M14"]),
-    ("Itel",    ["A26", "A48", "Vision 3", "S17"]),
-    ("Nokia",   ["G10", "C20", "C32", "G21"]),
-    ("Apple",   ["iPhone 11", "iPhone 12", "iPhone 13"]),
+    ("Itel", ["A26", "A48", "Vision 3", "S17"]),
+    ("Nokia", ["G10", "C20", "C32", "G21"]),
+    ("Apple", ["iPhone 11", "iPhone 12", "iPhone 13"]),
 ]
 
 
@@ -157,7 +157,7 @@ def _jitter_coord(rng: random.Random, lat: float, lng: float, radius_km: float) 
 
 def _rand_dt(rng: random.Random, *, days_back: int = 180) -> datetime:
     delta = timedelta(seconds=rng.randint(0, days_back * 86_400))
-    return datetime.now(timezone.utc) - delta
+    return datetime.now(UTC) - delta
 
 
 def _hash_id(value: str) -> str:
@@ -248,9 +248,7 @@ async def _seed_agents(client: Neo4jClient, state: GraphState) -> None:
                 "classification": classification,
                 "monthly_volume": round(rng.uniform(40_000, 800_000), 2),
                 "fraud_cashout_rate": round(
-                    {"clean": 0.0, "incidental": 0.03, "exploited": 0.18, "complicit": 0.42}[
-                        classification
-                    ]
+                    {"clean": 0.0, "incidental": 0.03, "exploited": 0.18, "complicit": 0.42}[classification]
                     * rng.uniform(0.7, 1.3),
                     4,
                 ),
@@ -617,15 +615,15 @@ async def _seed_clusters(client: Neo4jClient, state: GraphState) -> None:
                 },
             )
             # Elevate this wallet's risk + status (mutate state too so later phases see it).
-            new_status = "frozen" if status == "takedown_complete" else (
-                "flagged" if rng.random() < 0.7 else "active"
+            new_status = (
+                "frozen" if status == "takedown_complete" else ("flagged" if rng.random() < 0.7 else "active")
             )
             new_risk = round(min(0.97, member_conf + rng.uniform(-0.05, 0.10)), 3)
             w["status"] = new_status
             w["risk_score"] = new_risk
             w["confidence_score"] = member_conf
             w["cluster_id"] = cluster_id
-            w["is_sleeper"] = (role == "node" and rng.random() < 0.18)
+            w["is_sleeper"] = role == "node" and rng.random() < 0.18
             await client.execute_write(
                 """
                 MATCH (w:Wallet {wallet_id: $wallet_id})
@@ -675,9 +673,7 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
 
     rng = state.rng
     cluster_wallets_by_cluster: dict[str, list[dict]] = {
-        c["cluster_id"]: [
-            w for w in state.wallets if w.get("cluster_id") == c["cluster_id"]
-        ]
+        c["cluster_id"]: [w for w in state.wallets if w.get("cluster_id") == c["cluster_id"]]
         for c in state.clusters
     }
     clean_wallets = [w for w in state.wallets if not w.get("cluster_id")]
@@ -690,14 +686,10 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
     # Pre-pick 1-3 cashout agents per cluster (the fraud sinks).
     cluster_sink_agents: dict[str, list[str]] = {}
     bad_agent_ids = [
-        a["agent_id"]
-        for a in state.agents
-        if a["classification"] in ("exploited", "complicit")
+        a["agent_id"] for a in state.agents if a["classification"] in ("exploited", "complicit")
     ] or [a["agent_id"] for a in state.agents]
     for c in state.clusters:
-        cluster_sink_agents[c["cluster_id"]] = rng.sample(
-            bad_agent_ids, k=min(2, len(bad_agent_ids))
-        )
+        cluster_sink_agents[c["cluster_id"]] = rng.sample(bad_agent_ids, k=min(2, len(bad_agent_ids)))
 
     # 60% of transactions involve cluster wallets, 40% are clean traffic.
     for i in range(COUNTS.transactions):
@@ -712,10 +704,13 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
             # Pick an internal-transfer or cashout — mix is roughly 70/30.
             if rng.random() < 0.70:
                 src, dst = rng.sample(members, 2)
-                amount = round(rng.choices(
-                    [rng.uniform(20, 200), rng.uniform(200, 800), rng.uniform(800, 2_500)],
-                    weights=[0.55, 0.35, 0.10],
-                )[0], 2)
+                amount = round(
+                    rng.choices(
+                        [rng.uniform(20, 200), rng.uniform(200, 800), rng.uniform(800, 2_500)],
+                        weights=[0.55, 0.35, 0.10],
+                    )[0],
+                    2,
+                )
                 flagged = rng.random() < 0.30
                 txns.append(
                     {
@@ -726,9 +721,9 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
                         "status": "completed",
                         "flagged": flagged,
                         "flag_reason": (
-                            "structuring" if flagged and rng.random() < 0.5 else (
-                                "velocity" if flagged else None
-                            )
+                            "structuring"
+                            if flagged and rng.random() < 0.5
+                            else ("velocity" if flagged else None)
                         ),
                     }
                 )
@@ -768,18 +763,44 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
                         "strength": round(rng.uniform(0.55, 0.95), 3),
                     }
                 )
+        # Clean traffic: random wallet pair, modest amounts, rarely flagged.
+        elif rng.random() < 0.5 or len(clean_wallets) < 2:
+            src = rng.choice(state.wallets)
+            dst = rng.choice(state.wallets)
+            if src["wallet_id"] == dst["wallet_id"]:
+                continue
+            amount = round(rng.uniform(5, 600), 2)
+            txns.append(
+                {
+                    "tx_id": tx_id,
+                    "type": "p2p",
+                    "amount": amount,
+                    "timestamp": ts.isoformat(),
+                    "status": "completed",
+                    "flagged": False,
+                    "flag_reason": None,
+                }
+            )
+            sent_to.append(
+                {
+                    "tx_id": tx_id,
+                    "src": src["wallet_id"],
+                    "dst": dst["wallet_id"],
+                    "amount": amount,
+                    "timestamp": ts.isoformat(),
+                    "type": "p2p",
+                    "strength": round(rng.uniform(0.10, 0.35), 3),
+                }
+            )
         else:
-            # Clean traffic: random wallet pair, modest amounts, rarely flagged.
-            if rng.random() < 0.5 or len(clean_wallets) < 2:
-                src = rng.choice(state.wallets)
-                dst = rng.choice(state.wallets)
-                if src["wallet_id"] == dst["wallet_id"]:
-                    continue
-                amount = round(rng.uniform(5, 600), 2)
+            wallet = rng.choice(state.wallets)
+            agent = rng.choice(state.agents)
+            amount = round(rng.uniform(20, 1_000), 2)
+            if rng.random() < 0.5:
                 txns.append(
                     {
                         "tx_id": tx_id,
-                        "type": "p2p",
+                        "type": "cashin",
                         "amount": amount,
                         "timestamp": ts.isoformat(),
                         "status": "completed",
@@ -787,64 +808,37 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
                         "flag_reason": None,
                     }
                 )
-                sent_to.append(
+                cashins.append(
                     {
                         "tx_id": tx_id,
-                        "src": src["wallet_id"],
-                        "dst": dst["wallet_id"],
+                        "wallet_id": wallet["wallet_id"],
+                        "agent_id": agent["agent_id"],
                         "amount": amount,
                         "timestamp": ts.isoformat(),
-                        "type": "p2p",
-                        "strength": round(rng.uniform(0.10, 0.35), 3),
                     }
                 )
             else:
-                wallet = rng.choice(state.wallets)
-                agent = rng.choice(state.agents)
-                amount = round(rng.uniform(20, 1_000), 2)
-                if rng.random() < 0.5:
-                    txns.append(
-                        {
-                            "tx_id": tx_id,
-                            "type": "cashin",
-                            "amount": amount,
-                            "timestamp": ts.isoformat(),
-                            "status": "completed",
-                            "flagged": False,
-                            "flag_reason": None,
-                        }
-                    )
-                    cashins.append(
-                        {
-                            "tx_id": tx_id,
-                            "wallet_id": wallet["wallet_id"],
-                            "agent_id": agent["agent_id"],
-                            "amount": amount,
-                            "timestamp": ts.isoformat(),
-                        }
-                    )
-                else:
-                    txns.append(
-                        {
-                            "tx_id": tx_id,
-                            "type": "cashout",
-                            "amount": amount,
-                            "timestamp": ts.isoformat(),
-                            "status": "completed",
-                            "flagged": False,
-                            "flag_reason": None,
-                        }
-                    )
-                    cashouts.append(
-                        {
-                            "tx_id": tx_id,
-                            "wallet_id": wallet["wallet_id"],
-                            "agent_id": agent["agent_id"],
-                            "amount": amount,
-                            "timestamp": ts.isoformat(),
-                            "strength": round(rng.uniform(0.10, 0.30), 3),
-                        }
-                    )
+                txns.append(
+                    {
+                        "tx_id": tx_id,
+                        "type": "cashout",
+                        "amount": amount,
+                        "timestamp": ts.isoformat(),
+                        "status": "completed",
+                        "flagged": False,
+                        "flag_reason": None,
+                    }
+                )
+                cashouts.append(
+                    {
+                        "tx_id": tx_id,
+                        "wallet_id": wallet["wallet_id"],
+                        "agent_id": agent["agent_id"],
+                        "amount": amount,
+                        "timestamp": ts.isoformat(),
+                        "strength": round(rng.uniform(0.10, 0.30), 3),
+                    }
+                )
 
     # Bulk insert transaction nodes.
     for i in range(0, len(txns), 500):
@@ -994,9 +988,9 @@ def _seed_operators(session: Session, state: GraphState) -> list[ExternalOperato
             auto_integrate=auto,
             onboarding_step="complete" if status == "connected" else "awaiting_credentials",
             last_health_check=_rand_dt(rng, days_back=2) if status != "pending" else None,
-            last_health_status="healthy" if status == "connected" else (
-                "degraded" if status == "disconnected" else None
-            ),
+            last_health_status="healthy"
+            if status == "connected"
+            else ("degraded" if status == "disconnected" else None),
         )
         session.add(op)
         operators.append(op)
@@ -1042,9 +1036,7 @@ def _seed_agencies(session: Session) -> dict[str, LEAgency]:
 def _seed_rules(session: Session, state: GraphState) -> list[Rule]:
     rng = state.rng
     rules: list[Rule] = []
-    statuses = (
-        ["live"] * 10 + ["shadow"] * 3 + ["backtesting"] * 3 + ["draft"] * 4
-    )
+    statuses = ["live"] * 10 + ["shadow"] * 3 + ["backtesting"] * 3 + ["draft"] * 4
     rng.shuffle(statuses)
     templates = [
         ("High-velocity P2P transfers", "node.tx_count_5m", "greater_than", 8, "freeze_wallet"),
@@ -1052,21 +1044,45 @@ def _seed_rules(session: Session, state: GraphState) -> list[Rule]:
         ("Sleeper wallet awakening", "node.dormant_days", "greater_than", 90, "apply_send_with_care"),
         ("Structured cashouts", "node.round_amount_streak", "greater_than", 5, "freeze_wallet"),
         ("Risk score critical", "node.risk_score", "greater_than", 0.85, "escalate_to_investigator"),
-        ("Agent fraud concentration", "agent.fraud_cashout_rate", "greater_than", 0.30, "downgrade_agent_float"),
+        (
+            "Agent fraud concentration",
+            "agent.fraud_cashout_rate",
+            "greater_than",
+            0.30,
+            "downgrade_agent_float",
+        ),
         ("KYC tier mismatch", "node.kyc_tier", "less_than", 2, "force_kyc_reverification"),
         ("SIM swap chain", "node.sim_swap_count_30d", "greater_than", 2, "apply_ask_me_first"),
         ("Inbound op flag", "alert.source", "equals", "external_operator", "add_to_watchlist"),
-        ("Cluster confidence high", "node.cluster_confidence", "greater_than", 0.80, "escalate_to_investigator"),
+        (
+            "Cluster confidence high",
+            "node.cluster_confidence",
+            "greater_than",
+            0.80,
+            "escalate_to_investigator",
+        ),
         ("Burst payouts", "node.payout_count_15m", "greater_than", 6, "reduce_transaction_limit"),
         ("Geo anomaly", "node.cell_distance_km", "greater_than", 250, "issue_customer_warning"),
         ("Recurring fraudster cashout", "agent.fraud_cashouts_24h", "greater_than", 4, "suspend_agent"),
         ("New wallet large outflow", "node.account_age_days", "less_than", 7, "apply_send_with_care"),
-        ("Round amount cluster", "node.round_amount_pct_24h", "greater_than", 0.85, "escalate_to_investigator"),
+        (
+            "Round amount cluster",
+            "node.round_amount_pct_24h",
+            "greater_than",
+            0.85,
+            "escalate_to_investigator",
+        ),
         ("Inactive then high-value", "node.idle_days", "greater_than", 60, "apply_ask_me_first"),
         ("Watchlisted MSISDN", "node.on_watchlist", "equals", True, "block_cross_network"),
         ("Failed KYC velocity", "node.kyc_failures_24h", "greater_than", 3, "force_kyc_reverification"),
         ("Mass victim refund", "alert.type", "equals", "victim_complaint", "freeze_wallet"),
-        ("Foreign IP login burst", "auth.foreign_ip_rate_24h", "greater_than", 0.6, "force_kyc_reverification"),
+        (
+            "Foreign IP login burst",
+            "auth.foreign_ip_rate_24h",
+            "greater_than",
+            0.6,
+            "force_kyc_reverification",
+        ),
     ]
     for i in range(COUNTS.rules):
         name, field_path, op, value, action = templates[i % len(templates)]
@@ -1111,9 +1127,7 @@ def _seed_rules(session: Session, state: GraphState) -> list[Rule]:
                     node_type="wallet",
                     context={"risk_score": wallet["risk_score"], "status": wallet["status"]},
                     actions_executed=[{"type": rule.actions[0]["type"], "status": "ok"}],
-                    outcome=rng.choices(
-                        ["success", "overridden", "failed"], weights=[0.8, 0.15, 0.05]
-                    )[0],
+                    outcome=rng.choices(["success", "overridden", "failed"], weights=[0.8, 0.15, 0.05])[0],
                 )
             )
             triggers_added += 1
@@ -1125,13 +1139,21 @@ def _seed_rules(session: Session, state: GraphState) -> list[Rule]:
 def _seed_takedowns(session: Session, state: GraphState) -> None:
     rng = state.rng
     eligible_clusters = [
-        c for c in state.clusters
-        if c["status"] in ("takedown_pending", "takedown_complete", "investigating")
+        c for c in state.clusters if c["status"] in ("takedown_pending", "takedown_complete", "investigating")
     ]
     if len(eligible_clusters) < COUNTS.takedowns:
         eligible_clusters = eligible_clusters + rng.sample(state.clusters, COUNTS.takedowns)
 
-    statuses = ["pending", "approved", "in_progress", "completed", "completed", "completed", "completed", "in_progress"]
+    statuses = [
+        "pending",
+        "approved",
+        "in_progress",
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "in_progress",
+    ]
     rng.shuffle(statuses)
     step_types = [
         "freeze_wallets",
@@ -1159,8 +1181,8 @@ def _seed_takedowns(session: Session, state: GraphState) -> None:
             agents_alerted=rng.randint(0, 3),
             completed_at=completed,
             summary=f"Coordinated takedown for {cluster['name']} (confidence "
-                    f"{cluster['confidence_score']:.2f}, est. value GHS "
-                    f"{cluster['estimated_fraud_value']:.0f}).",
+            f"{cluster['confidence_score']:.2f}, est. value GHS "
+            f"{cluster['estimated_fraud_value']:.0f}).",
         )
         session.add(td)
         for j, step_type in enumerate(step_types):
@@ -1182,11 +1204,7 @@ def _seed_takedowns(session: Session, state: GraphState) -> None:
                 else:
                     step_status = "pending"
                 started = approved + timedelta(hours=j) if step_status != "pending" else None
-                step_completed = (
-                    approved + timedelta(hours=j + 1)
-                    if step_status == "completed"
-                    else None
-                )
+                step_completed = approved + timedelta(hours=j + 1) if step_status == "completed" else None
             else:  # completed
                 step_status = "completed"
                 started = approved + timedelta(hours=j)
@@ -1205,9 +1223,7 @@ def _seed_takedowns(session: Session, state: GraphState) -> None:
     logger.info("seed.postgres.takedowns", count=COUNTS.takedowns)
 
 
-def _seed_le_cases(
-    session: Session, state: GraphState, agencies: dict[str, LEAgency]
-) -> None:
+def _seed_le_cases(session: Session, state: GraphState, agencies: dict[str, LEAgency]) -> None:
     rng = state.rng
     case_states = [
         ("under_review", "CID"),
@@ -1217,11 +1233,9 @@ def _seed_le_cases(
         ("closed_no_action", "NCA"),
         ("active_investigation", "EOCO"),
     ]
-    for i, (status, agency_key) in enumerate(case_states):
+    for _i, (status, agency_key) in enumerate(case_states):
         agency = agencies[agency_key]
-        clusters_picked = rng.sample(
-            state.clusters, k=min(rng.randint(1, 2), len(state.clusters))
-        )
+        clusters_picked = rng.sample(state.clusters, k=min(rng.randint(1, 2), len(state.clusters)))
         case = LECase(
             id=_new_id("case"),
             agency_id=agency.id,
@@ -1270,15 +1284,12 @@ def _seed_alerts(session: Session, state: GraphState, rules: list[Rule]) -> None
         "victim_complaint",
         "external_inbound_flag",
     ]
-    for i in range(COUNTS.alerts):
+    for _i in range(COUNTS.alerts):
         severity = rng.choices(severities, weights=severity_weights)[0]
         a_type = rng.choice(types)
         target_wallet = rng.choice(state.wallets)
         rule = rng.choice(rules) if a_type == "rule_trigger" else None
-        cluster_id = (
-            target_wallet.get("cluster_id")
-            or rng.choice(state.clusters)["cluster_id"]
-        )
+        cluster_id = target_wallet.get("cluster_id") or rng.choice(state.clusters)["cluster_id"]
         acknowledged = rng.random() < 0.45
         session.add(
             Alert(
@@ -1311,9 +1322,7 @@ def _seed_alerts(session: Session, state: GraphState, rules: list[Rule]) -> None
     logger.info("seed.postgres.alerts", count=COUNTS.alerts)
 
 
-def _seed_shared_flags(
-    session: Session, state: GraphState, operators: list[ExternalOperator]
-) -> None:
+def _seed_shared_flags(session: Session, state: GraphState, operators: list[ExternalOperator]) -> None:
     rng = state.rng
     connected = [o for o in operators if o.status == "connected"]
     if not connected:
@@ -1340,9 +1349,7 @@ def _seed_shared_flags(
                     ]
                 ),
                 shared_at=_rand_dt(rng, days_back=10),
-                action_taken=rng.choice(
-                    ["accepted", "dismissed", "integrated", None, None]
-                ),
+                action_taken=rng.choice(["accepted", "dismissed", "integrated", None, None]),
             )
         )
     logger.info("seed.postgres.shared_flags", count=28)
@@ -1356,8 +1363,7 @@ def _seed_shared_flags(
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Seed FraudNet with realistic demo data.")
     parser.add_argument(
-        "--reset", action="store_true",
-        help="Wipe all existing data in Neo4j and Postgres before seeding."
+        "--reset", action="store_true", help="Wipe all existing data in Neo4j and Postgres before seeding."
     )
     parser.add_argument("--seed", type=int, default=20260507, help="RNG seed.")
     args = parser.parse_args()

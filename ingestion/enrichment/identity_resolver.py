@@ -36,9 +36,7 @@ class IdentitySnapshot:
         }
 
 
-async def resolve_by_wallet(
-    wallet_id: str, *, client: Neo4jClient | None = None
-) -> IdentitySnapshot:
+async def resolve_by_wallet(wallet_id: str, *, client: Neo4jClient | None = None) -> IdentitySnapshot:
     c = client or get_neo4j_client()
     rows = await c.execute_read(
         """
@@ -71,9 +69,7 @@ async def resolve_by_wallet(
     )
 
 
-async def resolve_by_msisdn(
-    msisdn: str, *, client: Neo4jClient | None = None
-) -> IdentitySnapshot:
+async def resolve_by_msisdn(msisdn: str, *, client: Neo4jClient | None = None) -> IdentitySnapshot:
     c = client or get_neo4j_client()
     rows = await c.execute_read(
         """

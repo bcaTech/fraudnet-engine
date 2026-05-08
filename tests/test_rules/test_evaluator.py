@@ -6,7 +6,6 @@ import pytest
 
 from rules.evaluator import RuleSyntaxError, evaluate, explain
 
-
 # ---------------------------------------------------------------------------
 # Leaf operators
 # ---------------------------------------------------------------------------

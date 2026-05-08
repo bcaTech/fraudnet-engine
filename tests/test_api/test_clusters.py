@@ -53,9 +53,7 @@ def test_get_cluster_detail(client: httpx.Client) -> None:
 
 
 def test_get_cluster_graph_returns_typed_payload(client: httpx.Client) -> None:
-    listing = client.get(
-        "/api/clusters", params={"per_page": 5, "min_confidence": 0.6}
-    ).json()
+    listing = client.get("/api/clusters", params={"per_page": 5, "min_confidence": 0.6}).json()
     if not listing["data"]:
         pytest.skip("no qualifying clusters seeded")
     # Pick the cluster with the largest member count to avoid empty graphs.

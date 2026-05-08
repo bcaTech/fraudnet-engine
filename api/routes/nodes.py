@@ -92,9 +92,7 @@ async def get_node(
         rows = await neo4j.execute_read(GET_WALLET, {"wallet_id": node_id})
         if not rows:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "wallet not found")
-        return ok(
-            {**(rows[0]["wallet"] or {}), "cluster_id": rows[0].get("cluster_id")}
-        )
+        return ok({**(rows[0]["wallet"] or {}), "cluster_id": rows[0].get("cluster_id")})
 
     if node_type == "handset":
         rows = await neo4j.execute_read(GET_HANDSET, {"imei": node_id})

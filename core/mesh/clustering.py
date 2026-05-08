@@ -15,7 +15,7 @@ back to Neo4j and for managing its lifecycle:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from config.constants import CLUSTER_STATUS_ACTIVE
@@ -44,7 +44,7 @@ class ClusterPersistence:
     def __init__(self, client: Neo4jClient) -> None:
         self.client = client
 
-    async def persist_expansion(self, result: "ExpansionResult") -> None:
+    async def persist_expansion(self, result: ExpansionResult) -> None:
         """Upsert the cluster node and attach members.
 
         Side effects on each member node:
@@ -70,11 +70,9 @@ class ClusterPersistence:
             },
         )
         if seed_label is None:
-            logger.warning(
-                "mesh.persist.unknown_seed_label", seed_type=result.seed.node_type
-            )
+            logger.warning("mesh.persist.unknown_seed_label", seed_type=result.seed.node_type)
 
-        joined_at = datetime.now(timezone.utc).isoformat()
+        joined_at = datetime.now(UTC).isoformat()
         statements: list[tuple[str, dict[str, object]]] = []
         for node in result.nodes:
             label = node.label
@@ -113,12 +111,12 @@ def _label_for_seed(node_type: str) -> str:
     }.get(node_type.lower(), "Wallet")
 
 
-def _default_name(result: "ExpansionResult") -> str:
+def _default_name(result: ExpansionResult) -> str:
     short = result.cluster_id.split("-")[-1]
     return f"Cluster {short.upper()} ({result.seed.source})"
 
 
-def _estimate_fraud_value(result: "ExpansionResult") -> float:
+def _estimate_fraud_value(result: ExpansionResult) -> float:
     """Best-effort fraud-value estimate from member balances and edge volumes.
 
     This is a rough lower bound — the analytics layer recomputes it from

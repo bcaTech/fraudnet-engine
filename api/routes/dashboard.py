@@ -7,7 +7,7 @@ service layer — TODO when the cache module lands).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
@@ -45,7 +45,7 @@ async def get_metrics(neo4j: Neo4jDep) -> APIResponse[dict]:
             "takedowns_completed": int(r.get("takedowns_completed") or 0),
             "estimated_fraud_value": float(r.get("estimated_fraud_value") or 0.0),
         }
-    payload["generated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["generated_at"] = datetime.now(UTC).isoformat()
     return ok(payload)
 
 
@@ -87,15 +87,11 @@ async def get_alert_feed(
     if acknowledged is not None:
         base = base.where(Alert.acknowledged == acknowledged)
 
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         (
             await db.execute(
-                base.order_by(Alert.created_at.desc())
-                .offset((page - 1) * per_page)
-                .limit(per_page)
+                base.order_by(Alert.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
             )
         )
         .scalars()
@@ -133,7 +129,7 @@ async def get_activity_timeline(
     Returns two parallel series suitable for direct charting.
     """
 
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = datetime.now(UTC) - timedelta(hours=hours)
     rows = await neo4j.execute_read(
         """
         MATCH (t:Transaction)
@@ -168,13 +164,7 @@ async def get_recent_takedowns(
     """Latest takedowns, most-recently-initiated first."""
 
     rows = (
-        (
-            await db.execute(
-                select(Takedown)
-                .order_by(Takedown.initiated_at.desc())
-                .limit(limit)
-            )
-        )
+        (await db.execute(select(Takedown).order_by(Takedown.initiated_at.desc()).limit(limit)))
         .scalars()
         .all()
     )

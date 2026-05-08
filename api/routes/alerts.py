@@ -7,7 +7,7 @@ consumers.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -51,12 +51,8 @@ async def alert_stats(db: DBSessionDep) -> APIResponse[dict]:
     Powers the alert-volume charts in the analytics view.
     """
 
-    by_severity = (
-        await db.execute(select(Alert.severity, func.count()).group_by(Alert.severity))
-    ).all()
-    by_type = (
-        await db.execute(select(Alert.type, func.count()).group_by(Alert.type))
-    ).all()
+    by_severity = (await db.execute(select(Alert.severity, func.count()).group_by(Alert.severity))).all()
+    by_type = (await db.execute(select(Alert.type, func.count()).group_by(Alert.type))).all()
     ack_counts = (
         await db.execute(select(Alert.acknowledged, func.count()).group_by(Alert.acknowledged))
     ).all()
@@ -101,15 +97,9 @@ async def list_alerts(
     if conditions:
         base = base.where(*conditions)
 
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
 
-    page_q = (
-        base.order_by(Alert.created_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-    )
+    page_q = base.order_by(Alert.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
     rows = (await db.execute(page_q)).scalars().all()
 
     return APIResponse(
@@ -130,15 +120,13 @@ async def acknowledge_alert(
     """Mark an alert as acknowledged. Idempotent — re-acking is a no-op
     that returns the current state."""
 
-    alert = (
-        await db.execute(select(Alert).where(Alert.id == alert_id))
-    ).scalar_one_or_none()
+    alert = (await db.execute(select(Alert).where(Alert.id == alert_id))).scalar_one_or_none()
     if alert is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
 
     if not alert.acknowledged:
         alert.acknowledged = True
-        alert.acknowledged_at = datetime.now(timezone.utc)
+        alert.acknowledged_at = datetime.now(UTC)
         alert.acknowledged_by = "system"  # TODO: replace once auth lands.
         await db.commit()
         await db.refresh(alert)
@@ -159,14 +147,12 @@ async def dismiss_alert(
     """Dismiss an alert. Persisted as ``acknowledged=true`` with the
     dismissal reason captured in ``extra.dismissal_reason``."""
 
-    alert = (
-        await db.execute(select(Alert).where(Alert.id == alert_id))
-    ).scalar_one_or_none()
+    alert = (await db.execute(select(Alert).where(Alert.id == alert_id))).scalar_one_or_none()
     if alert is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
 
     alert.acknowledged = True
-    alert.acknowledged_at = datetime.now(timezone.utc)
+    alert.acknowledged_at = datetime.now(UTC)
     alert.acknowledged_by = "system"
     extra = dict(alert.extra or {})
     extra["dismissed"] = True

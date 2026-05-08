@@ -18,10 +18,9 @@ inspecting the event payload's ``event_type``.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from config.constants import KAFKA_TOPICS
 from config.logging import get_logger
 from core.graph.client import get_neo4j_client
 from db.models import Alert
@@ -61,7 +60,7 @@ class ScancomConsumer(KafkaConsumerBase):
         imsi = event.get("imsi")
         if not imsi:
             raise ValueError("sim_swap event missing imsi")
-        ts = event.get("timestamp") or datetime.now(timezone.utc).isoformat()
+        ts = event.get("timestamp") or datetime.now(UTC).isoformat()
 
         client = get_neo4j_client()
         rows = await client.execute_write(
@@ -117,7 +116,7 @@ class ScancomConsumer(KafkaConsumerBase):
             """,
             {
                 "imei": imei,
-                "ts": event.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+                "ts": event.get("timestamp") or datetime.now(UTC).isoformat(),
                 "make": event.get("make"),
                 "model": event.get("model"),
             },
@@ -134,8 +133,7 @@ class ScancomConsumer(KafkaConsumerBase):
         msisdn_count = int(rows[0]["msisdn_count"]) if rows else 0
         if msisdn_count >= 5:
             await client.execute_write(
-                "MATCH (h:Handset {imei: $imei}) SET h.flagged = true, "
-                "h.flag_reason = 'multi_sim_handset'",
+                "MATCH (h:Handset {imei: $imei}) SET h.flagged = true, h.flag_reason = 'multi_sim_handset'",
                 {"imei": imei},
             )
             await self._open_alert(
@@ -143,10 +141,7 @@ class ScancomConsumer(KafkaConsumerBase):
                 target_id=imei,
                 severity="medium",
                 title=f"Handset hosts {msisdn_count} numbers — possible mule device",
-                description=(
-                    f"IMEI {imei} has been observed with {msisdn_count} distinct "
-                    f"MSISDNs."
-                ),
+                description=(f"IMEI {imei} has been observed with {msisdn_count} distinct MSISDNs."),
                 metadata={"imei": imei, "msisdn_count": msisdn_count},
             )
 
@@ -166,7 +161,7 @@ class ScancomConsumer(KafkaConsumerBase):
             db.add(
                 Alert(
                     id=f"alert-{uuid.uuid4().hex[:12]}",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                     type="sim_swap_burst" if target_type == "sim" else "device_anomaly",
                     severity=severity,
                     title=title,

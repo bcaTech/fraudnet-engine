@@ -29,7 +29,7 @@ import uuid
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from config.constants import ExpansionConfig, ScoringWeights
@@ -138,7 +138,7 @@ async def expand_from_seed(
 
     cfg = config or ExpansionConfig()
     sw = weights or ScoringWeights()
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
 
     label, key = resolve_lookup(seed.node_type)
 
@@ -149,9 +149,7 @@ async def expand_from_seed(
         {"id": seed.node_id},
     )
     if not seed_records:
-        raise ValueError(
-            f"Seed not found in graph: {seed.node_type}={seed.node_id!r}"
-        )
+        raise ValueError(f"Seed not found in graph: {seed.node_type}={seed.node_id!r}")
     seed_record = seed_records[0]
     seed_eid: str = seed_record["eid"]
 
@@ -211,23 +209,17 @@ async def expand_from_seed(
 
             # ---- preliminary confidence ---------------------------------
             distance_discount_term = cfg.distance_discount ** (parent.depth + 1)
-            seed_proximity = (
-                parent.confidence * edge_strength * distance_discount_term
-            )
+            seed_proximity = parent.confidence * edge_strength * distance_discount_term
 
             existing = discovered.get(target_eid)
             convergence = (existing.convergence_factor if existing else 0) + (
                 1 if existing and parent_eid not in existing.parent_eids else 0
             )
-            convergence_bonus = min(
-                cfg.convergence_bonus * convergence, cfg.convergence_cap
-            )
+            convergence_bonus = min(cfg.convergence_bonus * convergence, cfg.convergence_cap)
 
             preliminary = calculate_node_confidence(
                 seed_proximity=seed_proximity,
-                edge_strength_sum=(
-                    (existing.edge_strength_sum if existing else 0.0) + edge_strength
-                ),
+                edge_strength_sum=((existing.edge_strength_sum if existing else 0.0) + edge_strength),
                 convergence_factor=convergence,
                 behavioral_score=float(target_props.get("behavioral_score", 0.0)),
                 predictive_score=float(target_props.get("predictive_score", 0.0)),
@@ -273,7 +265,7 @@ async def expand_from_seed(
     isolation = _isolation_score(discovered.values(), edge_records)
 
     cluster_id = f"cluster-{uuid.uuid4().hex[:12]}"
-    duration_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000.0
+    duration_ms = (datetime.now(UTC) - started).total_seconds() * 1000.0
 
     result = ExpansionResult(
         cluster_id=cluster_id,
@@ -309,9 +301,7 @@ async def expand_from_seed(
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_neighbours(
-    client: Neo4jClient, node: _DiscoveredNode
-) -> list[dict[str, Any]]:
+async def _fetch_neighbours(client: Neo4jClient, node: _DiscoveredNode) -> list[dict[str, Any]]:
     """Pull a single node's neighbours, ordered by strength."""
 
     if node.label not in _LABEL_TO_TYPE:
@@ -374,10 +364,7 @@ def _aggregate_confidence(nodes: Iterable[_DiscoveredNode]) -> float:
     total = 0.0
     weight = 0.0
     for n in nodes:
-        if n.depth == 0:
-            w = 2.0
-        else:
-            w = 1.0 / (1.0 + n.depth)
+        w = 2.0 if n.depth == 0 else 1.0 / (1.0 + n.depth)
         total += n.confidence * w
         weight += w
     return total / weight if weight else 0.0

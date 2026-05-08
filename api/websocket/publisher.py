@@ -18,7 +18,7 @@ multiplex multiple event types.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import redis.asyncio as redis_async
@@ -73,7 +73,7 @@ def _envelope(event: str, data: Any) -> dict[str, Any]:
     return {
         "event": event,
         "data": data,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -86,6 +86,4 @@ async def publish(channel: str, event: str, data: Any) -> None:
         client = await _get_client()
         await client.publish(channel, json.dumps(payload, default=str))
     except Exception as exc:  # noqa: BLE001 — broadcast is best-effort
-        logger.warning(
-            "ws.publish.failed", channel=channel, event=event, error=str(exc)
-        )
+        logger.warning("ws.publish.failed", channel=channel, event=event, error=str(exc))

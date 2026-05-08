@@ -9,7 +9,7 @@ surfaces in real time.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -71,7 +71,7 @@ def _td_to_dict(t: Takedown, *, include_steps: bool = False) -> dict[str, Any]:
     if include_steps:
         payload["steps"] = [
             _step_to_dict(s)
-            for s in sorted(t.steps, key=lambda s: s.started_at or datetime.min.replace(tzinfo=timezone.utc))
+            for s in sorted(t.steps, key=lambda s: s.started_at or datetime.min.replace(tzinfo=UTC))
         ]
     return payload
 
@@ -100,11 +100,7 @@ async def list_takedowns(
         base = base.where(Takedown.cluster_id == cluster_id)
 
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    page_q = (
-        base.order_by(Takedown.initiated_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-    )
+    page_q = base.order_by(Takedown.initiated_at.desc()).offset((page - 1) * per_page).limit(per_page)
     rows = (await db.execute(page_q)).scalars().all()
 
     return APIResponse(
@@ -116,11 +112,7 @@ async def list_takedowns(
 
 @router.get("/{takedown_id}")
 async def get_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
-    stmt = (
-        select(Takedown)
-        .where(Takedown.id == takedown_id)
-        .options(selectinload(Takedown.steps))
-    )
+    stmt = select(Takedown).where(Takedown.id == takedown_id).options(selectinload(Takedown.steps))
     td = (await db.execute(stmt)).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
@@ -175,7 +167,7 @@ async def initiate_takedown(
         id=_new_id("td"),
         cluster_id=c["cluster_id"],
         initiated_by="system",  # TODO once auth lands
-        initiated_at=datetime.now(timezone.utc),
+        initiated_at=datetime.now(UTC),
         status="pending",
         wallets_frozen=0,
         sims_flagged=0,
@@ -203,11 +195,7 @@ async def initiate_takedown(
     await db.commit()
 
     detail = (
-        await db.execute(
-            select(Takedown)
-            .where(Takedown.id == td.id)
-            .options(selectinload(Takedown.steps))
-        )
+        await db.execute(select(Takedown).where(Takedown.id == td.id).options(selectinload(Takedown.steps)))
     ).scalar_one()
     payload = _td_to_dict(detail, include_steps=True)
     await publish(
@@ -234,9 +222,7 @@ async def initiate_takedown(
     dependencies=[Depends(require_role(ROLE_SENIOR_INVESTIGATOR))],
 )
 async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
-    td = (
-        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
-    ).scalar_one_or_none()
+    td = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
     if td.status not in ("pending", "approved"):
@@ -246,7 +232,7 @@ async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[di
         )
     if td.status == "pending":
         td.status = "approved"
-        td.approved_at = datetime.now(timezone.utc)
+        td.approved_at = datetime.now(UTC)
         td.approved_by = "system"
         await db.commit()
         await db.refresh(td)
@@ -274,18 +260,14 @@ async def complete_takedown(
     cluster is tagged ``status='takedown_complete'``.
     """
 
-    stmt = (
-        select(Takedown)
-        .where(Takedown.id == takedown_id)
-        .options(selectinload(Takedown.steps))
-    )
+    stmt = select(Takedown).where(Takedown.id == takedown_id).options(selectinload(Takedown.steps))
     td = (await db.execute(stmt)).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
     if td.status == "completed":
         return ok(_td_to_dict(td, include_steps=True))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     td.status = "completed"
     td.completed_at = now
     for s in td.steps:
@@ -350,14 +332,10 @@ async def complete_takedown(
 
 
 @router.get("/{takedown_id}/evidence-package")
-async def download_evidence_package(
-    takedown_id: str, db: DBSessionDep
-) -> StreamingResponse:
+async def download_evidence_package(takedown_id: str, db: DBSessionDep) -> StreamingResponse:
     """Stream the latest evidence-package PDF for a takedown."""
 
-    td = (
-        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
-    ).scalar_one_or_none()
+    td = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
 
@@ -370,9 +348,7 @@ async def download_evidence_package(
         )
     ).scalar_one_or_none()
     if pkg is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "no evidence package for this takedown"
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no evidence package for this takedown")
 
     # Pull bytes out of MinIO. file_path is ``s3://bucket/key`` or
     # ``local://key`` when MinIO was unavailable at build time.
@@ -382,9 +358,7 @@ async def download_evidence_package(
         "X-Evidence-Hash": pkg.file_hash,
         "X-Evidence-Version": str(pkg.version),
     }
-    return StreamingResponse(
-        iter([pdf_bytes]), media_type="application/pdf", headers=headers
-    )
+    return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers=headers)
 
 
 async def _fetch_evidence_bytes(pkg: EvidencePackage) -> bytes:
@@ -403,7 +377,7 @@ async def _fetch_evidence_bytes(pkg: EvidencePackage) -> bytes:
             secure=s.minio_secure,
         )
         # ``s3://bucket/key/with/slashes``
-        without_scheme = pkg.file_path[len("s3://"):]
+        without_scheme = pkg.file_path[len("s3://") :]
         bucket, _, key = without_scheme.partition("/")
         try:
             response = client.get_object(bucket, key)
@@ -437,9 +411,7 @@ async def takedown_readiness(
     plus simple heuristics. The real assessment lives in
     ``core.takedown.readiness``."""
 
-    td = (
-        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
-    ).scalar_one_or_none()
+    td = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
 

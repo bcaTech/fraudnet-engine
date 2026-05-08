@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from core.graph.client import get_neo4j_client
 
 from .registry import ActionContext, ActionRegistry, ActionResult
@@ -74,9 +72,7 @@ async def _restore_float(ctx: ActionContext) -> ActionResult:
     )
     if not rows:
         return ActionResult(ok=False, detail={"target": ctx.target}, error="no prior float")
-    return ActionResult(
-        ok=True, detail={"target": ctx.target, "float_avg": float(rows[0]["float_avg"])}
-    )
+    return ActionResult(ok=True, detail={"target": ctx.target, "float_avg": float(rows[0]["float_avg"])})
 
 
 async def _agent_warning(ctx: ActionContext) -> ActionResult:

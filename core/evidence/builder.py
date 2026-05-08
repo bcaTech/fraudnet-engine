@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -53,9 +53,7 @@ async def _gather(cluster_id: str) -> dict[str, Any]:
         raise ValueError(f"cluster '{cluster_id}' not found")
     cluster = rows[0].get("cluster") or {}
     cluster["member_count"] = int(rows[0].get("member_count") or 0)
-    cluster["member_labels"] = [
-        lab for lab in (rows[0].get("labels") or []) if lab
-    ]
+    cluster["member_labels"] = [lab for lab in (rows[0].get("labels") or []) if lab]
 
     members = await client.execute_read(
         """
@@ -165,12 +163,10 @@ async def build_for_cluster(
     async with get_async_session() as db:
         # Versioning: bump version per existing package for this cluster.
         existing = (
-            await db.execute(
-                select(EvidencePackage).where(
-                    EvidencePackage.cluster_id == cluster_id
-                )
-            )
-        ).scalars().all()
+            (await db.execute(select(EvidencePackage).where(EvidencePackage.cluster_id == cluster_id)))
+            .scalars()
+            .all()
+        )
         version = max((p.version for p in existing), default=0) + 1
 
         record = EvidencePackage(
@@ -178,7 +174,7 @@ async def build_for_cluster(
             cluster_id=cluster_id,
             case_id=case_id,
             takedown_id=takedown_id,
-            generated_at=datetime.now(timezone.utc),
+            generated_at=datetime.now(UTC),
             generated_by=generated_by or "system",
             version=version,
             file_hash=file_hash,

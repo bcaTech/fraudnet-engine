@@ -10,7 +10,7 @@ fork from.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -36,9 +36,7 @@ _TEMPLATES: list[dict[str, Any]] = [
         "category": "velocity",
         "default_conditions": {
             "operator": "AND",
-            "conditions": [
-                {"field": "node.tx_count_5m", "op": "greater_than", "value": 8}
-            ],
+            "conditions": [{"field": "node.tx_count_5m", "op": "greater_than", "value": 8}],
         },
         "suggested_actions": [{"type": "freeze_wallet", "params": {}}],
     },
@@ -49,9 +47,7 @@ _TEMPLATES: list[dict[str, Any]] = [
         "category": "cross_network",
         "default_conditions": {
             "operator": "AND",
-            "conditions": [
-                {"field": "node.cross_network_24h", "op": "greater_than", "value": 3}
-            ],
+            "conditions": [{"field": "node.cross_network_24h", "op": "greater_than", "value": 3}],
         },
         "suggested_actions": [{"type": "block_cross_network", "params": {}}],
     },
@@ -62,9 +58,7 @@ _TEMPLATES: list[dict[str, Any]] = [
         "category": "anomaly",
         "default_conditions": {
             "operator": "AND",
-            "conditions": [
-                {"field": "node.dormant_days", "op": "greater_than", "value": 90}
-            ],
+            "conditions": [{"field": "node.dormant_days", "op": "greater_than", "value": 90}],
         },
         "suggested_actions": [{"type": "apply_send_with_care", "params": {}}],
     },
@@ -75,9 +69,7 @@ _TEMPLATES: list[dict[str, Any]] = [
         "category": "structuring",
         "default_conditions": {
             "operator": "AND",
-            "conditions": [
-                {"field": "node.round_amount_streak", "op": "greater_than", "value": 5}
-            ],
+            "conditions": [{"field": "node.round_amount_streak", "op": "greater_than", "value": 5}],
         },
         "suggested_actions": [{"type": "freeze_wallet", "params": {}}],
     },
@@ -88,9 +80,7 @@ _TEMPLATES: list[dict[str, Any]] = [
         "category": "agent_risk",
         "default_conditions": {
             "operator": "AND",
-            "conditions": [
-                {"field": "agent.fraud_cashout_rate", "op": "greater_than", "value": 0.30}
-            ],
+            "conditions": [{"field": "agent.fraud_cashout_rate", "op": "greater_than", "value": 0.30}],
         },
         "suggested_actions": [{"type": "downgrade_agent_float", "params": {}}],
     },
@@ -101,9 +91,7 @@ _TEMPLATES: list[dict[str, Any]] = [
         "category": "device",
         "default_conditions": {
             "operator": "AND",
-            "conditions": [
-                {"field": "node.sim_swap_count_30d", "op": "greater_than", "value": 2}
-            ],
+            "conditions": [{"field": "node.sim_swap_count_30d", "op": "greater_than", "value": 2}],
         },
         "suggested_actions": [{"type": "apply_ask_me_first", "params": {}}],
     },
@@ -123,11 +111,7 @@ async def list_templates() -> APIResponse[list[dict[str, Any]]]:
 
 
 def _rule_to_dict(r: Rule) -> dict[str, Any]:
-    fp_rate = (
-        round(r.false_positive_count / r.trigger_count, 4)
-        if r.trigger_count
-        else 0.0
-    )
+    fp_rate = round(r.false_positive_count / r.trigger_count, 4) if r.trigger_count else 0.0
     return {
         "id": r.id,
         "name": r.name,
@@ -169,14 +153,8 @@ async def list_rules(
     if created_by:
         base = base.where(Rule.created_by == created_by)
 
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
-    page_q = (
-        base.order_by(Rule.updated_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-    )
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_q = base.order_by(Rule.updated_at.desc()).offset((page - 1) * per_page).limit(per_page)
     rows = (await db.execute(page_q)).scalars().all()
     return APIResponse(
         data=[_rule_to_dict(r) for r in rows],
@@ -187,9 +165,7 @@ async def list_rules(
 
 @router.get("/{rule_id}")
 async def get_rule(rule_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
-    rule = (
-        await db.execute(select(Rule).where(Rule.id == rule_id))
-    ).scalar_one_or_none()
+    rule = (await db.execute(select(Rule).where(Rule.id == rule_id))).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "rule not found")
 
@@ -236,22 +212,16 @@ async def list_rule_triggers(
     db: DBSessionDep,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=500),
-    outcome: str | None = Query(
-        None, pattern="^(success|overridden|failed|pending_approval)$"
-    ),
+    outcome: str | None = Query(None, pattern="^(success|overridden|failed|pending_approval)$"),
 ) -> APIResponse[list[dict[str, Any]]]:
     base = select(RuleTrigger).where(RuleTrigger.rule_id == rule_id)
     if outcome:
         base = base.where(RuleTrigger.outcome == outcome)
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         (
             await db.execute(
-                base.order_by(desc(RuleTrigger.triggered_at))
-                .offset((page - 1) * per_page)
-                .limit(per_page)
+                base.order_by(desc(RuleTrigger.triggered_at)).offset((page - 1) * per_page).limit(per_page)
             )
         )
         .scalars()
@@ -281,15 +251,11 @@ async def list_rule_triggers(
 
 
 @router.get("/{rule_id}/performance")
-async def rule_performance(
-    rule_id: str, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def rule_performance(rule_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Aggregate trigger-rate / fp-rate / override-rate. Lightweight version
     of the analytics surfaced on the rule detail page."""
 
-    rule = (
-        await db.execute(select(Rule).where(Rule.id == rule_id))
-    ).scalar_one_or_none()
+    rule = (await db.execute(select(Rule).where(Rule.id == rule_id))).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "rule not found")
 
@@ -308,12 +274,7 @@ async def rule_performance(
 
     age_days = max(
         1,
-        int(
-            (
-                datetime.now(timezone.utc) - (rule.created_at or datetime.now(timezone.utc))
-            ).total_seconds()
-            // 86_400
-        ),
+        int((datetime.now(UTC) - (rule.created_at or datetime.now(UTC))).total_seconds() // 86_400),
     )
     return ok(
         {
@@ -322,9 +283,7 @@ async def rule_performance(
             "trigger_count": rule.trigger_count,
             "false_positive_count": rule.false_positive_count,
             "false_positive_rate": (
-                round(rule.false_positive_count / rule.trigger_count, 4)
-                if rule.trigger_count
-                else 0.0
+                round(rule.false_positive_count / rule.trigger_count, 4) if rule.trigger_count else 0.0
             ),
             "trigger_rate_per_day": round(rule.trigger_count / age_days, 3),
             "override_count": overrides,

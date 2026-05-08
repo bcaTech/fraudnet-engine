@@ -8,8 +8,9 @@ modules and register it via :func:`register`.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from config.logging import get_logger
 

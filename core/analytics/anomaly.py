@@ -10,7 +10,7 @@ not to be the source of truth for fraud detection.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from config.logging import get_logger
@@ -25,7 +25,9 @@ logger = get_logger(__name__)
 
 
 async def device_anomalies(
-    *, msisdn_threshold: int = 5, swap_threshold: int = 2,
+    *,
+    msisdn_threshold: int = 5,
+    swap_threshold: int = 2,
     client: Neo4jClient | None = None,
 ) -> dict[str, Any]:
     """Find handsets shared across many MSISDNs and SIMs swapped >N times."""
@@ -64,7 +66,8 @@ async def device_anomalies(
 
 
 async def transaction_anomalies(
-    *, amount_zscore_threshold: float = 3.0,
+    *,
+    amount_zscore_threshold: float = 3.0,
     structuring_threshold: int = 5,
     client: Neo4jClient | None = None,
 ) -> dict[str, Any]:
@@ -116,8 +119,7 @@ async def transaction_anomalies(
     return {
         "structuring_candidates": [dict(r) for r in structuring],
         "amount_outliers": [
-            {**dict(r), "max_z": float(r["max_z"]), "max_amount": float(r["max_amount"])}
-            for r in outliers
+            {**dict(r), "max_z": float(r["max_z"]), "max_amount": float(r["max_amount"])} for r in outliers
         ],
     }
 
@@ -128,8 +130,11 @@ async def transaction_anomalies(
 
 
 async def temporal_anomalies(
-    *, off_hours_start: int = 0, off_hours_end: int = 5,
-    burst_threshold: int = 10, burst_minutes: int = 5,
+    *,
+    off_hours_start: int = 0,
+    off_hours_end: int = 5,
+    burst_threshold: int = 10,
+    burst_minutes: int = 5,
     client: Neo4jClient | None = None,
 ) -> dict[str, Any]:
     """Off-hours activity (00:00–05:00 UTC by default) and minute-bucket
@@ -171,15 +176,15 @@ async def temporal_anomalies(
     return {
         "off_hours_activity": [dict(r) for r in off_hours],
         "burst_windows": [
-            {**{k: v for k, v in r.items() if k != "bucket"},
-             "bucket": str(r.get("bucket"))}
-            for r in bursts
+            {**{k: v for k, v in r.items() if k != "bucket"}, "bucket": str(r.get("bucket"))} for r in bursts
         ],
     }
 
 
 async def velocity_anomalies(
-    *, send_rate_threshold: int = 8, window_minutes: int = 5,
+    *,
+    send_rate_threshold: int = 8,
+    window_minutes: int = 5,
     client: Neo4jClient | None = None,
 ) -> list[dict[str, Any]]:
     """Wallets exceeding ``send_rate_threshold`` outbound transfers in the
@@ -216,5 +221,5 @@ async def run_anomaly_scan() -> dict[str, Any]:
         "transactions": await transaction_anomalies(client=client),
         "temporal": await temporal_anomalies(client=client),
         "velocity": await velocity_anomalies(client=client),
-        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "scanned_at": datetime.now(UTC).isoformat(),
     }

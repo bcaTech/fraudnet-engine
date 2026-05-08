@@ -11,7 +11,6 @@ import asyncio
 from unittest.mock import patch
 
 import networkx as nx
-import pytest
 
 from core.analytics.community import (
     _label_prop_communities,
@@ -99,9 +98,7 @@ def test_detect_louvain_returns_summary_for_real_graph() -> None:
     g = _two_clique_graph()
 
     async def run():
-        with patch(
-            "core.analytics.community.load_cluster_subgraph", return_value=g
-        ):
+        with patch("core.analytics.community.load_cluster_subgraph", return_value=g):
             return await detect_louvain("CLUSTER-T1", persist=False)
 
     out = asyncio.run(run())

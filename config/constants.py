@@ -126,6 +126,7 @@ AGENT_RISK_THRESHOLDS: Final[dict[str, float]] = {
 # Confidence labels (used in API responses)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ConfidenceBands:
     low: float = 0.30

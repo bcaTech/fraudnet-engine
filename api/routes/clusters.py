@@ -212,8 +212,7 @@ async def get_cluster_evidence(cluster_id: str, neo4j: Neo4jDep) -> APIResponse[
                 "node_type": cluster.get("seed_type"),
                 "confidence": cluster.get("confidence_score"),
                 "description": (
-                    f"Cluster seeded from {cluster.get('seed_type')} "
-                    f"{cluster.get('seed_node_id')}."
+                    f"Cluster seeded from {cluster.get('seed_type')} {cluster.get('seed_node_id')}."
                 ),
             }
         ]

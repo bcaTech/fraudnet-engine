@@ -9,7 +9,7 @@ Run from Celery (see ``tasks/periodic.py``):
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from config.constants import (
     CLUSTER_STATUS_ACTIVE,
@@ -102,9 +102,7 @@ RETURN count(c) AS dissolved
 """
 
 
-async def dissolve_low_confidence_clusters(
-    client: Neo4jClient, *, threshold: float = 0.20
-) -> int:
+async def dissolve_low_confidence_clusters(client: Neo4jClient, *, threshold: float = 0.20) -> int:
     rows = await client.execute_write(
         _DISSOLVE_LOW_CONFIDENCE,
         {
@@ -118,7 +116,7 @@ async def dissolve_low_confidence_clusters(
         "mesh.dissolve.complete",
         dissolved=n,
         threshold=threshold,
-        at=datetime.now(timezone.utc).isoformat(),
+        at=datetime.now(UTC).isoformat(),
     )
     return n
 

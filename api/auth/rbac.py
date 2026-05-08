@@ -27,7 +27,6 @@ from config.settings import get_settings
 
 from .jwt import AuthError, TokenClaims, decode_token
 
-
 # ---------------------------------------------------------------------------
 # Roles
 # ---------------------------------------------------------------------------

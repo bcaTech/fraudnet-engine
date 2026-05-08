@@ -116,9 +116,7 @@ async def _persist(
     )
 
 
-def _summarise(
-    metrics: dict[str, dict[str, float]], top_n: int = 5
-) -> dict[str, Any]:
+def _summarise(metrics: dict[str, dict[str, float]], top_n: int = 5) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     for name, scores in metrics.items():
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
@@ -126,9 +124,7 @@ def _summarise(
     return summary
 
 
-async def compute_for_cluster(
-    cluster_id: str, *, persist: bool = True
-) -> dict[str, Any]:
+async def compute_for_cluster(cluster_id: str, *, persist: bool = True) -> dict[str, Any]:
     g = await load_cluster_subgraph(cluster_id)
     if g.number_of_nodes() == 0:
         return {"cluster_id": cluster_id, "skipped": True}

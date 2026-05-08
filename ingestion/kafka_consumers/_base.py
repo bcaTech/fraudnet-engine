@@ -57,9 +57,7 @@ class KafkaConsumerBase(ABC):
         self._producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
         await self._consumer.start()
         await self._producer.start()
-        logger.info(
-            "kafka.consumer.started", topic=self.topic, group=self.group_id
-        )
+        logger.info("kafka.consumer.started", topic=self.topic, group=self.group_id)
 
     async def stop(self) -> None:
         self._stopped.set()
@@ -118,9 +116,7 @@ class KafkaConsumerBase(ABC):
         try:
             await self._producer.send_and_wait(
                 self._dlq_topic,
-                json.dumps(
-                    {"reason": reason, "raw": raw.decode("utf-8", errors="replace")}
-                ).encode("utf-8"),
+                json.dumps({"reason": reason, "raw": raw.decode("utf-8", errors="replace")}).encode("utf-8"),
             )
         except Exception as exc:  # noqa: BLE001 — DLQ failures are non-fatal
             logger.warning("kafka.dlq.send_failed", topic=self._dlq_topic, error=str(exc))

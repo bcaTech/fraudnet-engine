@@ -14,7 +14,7 @@ Run locally with ``uvicorn api.main:app --reload``.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -152,7 +152,7 @@ def create_app() -> FastAPI:
                 "status": "ok" if neo4j_ok else "degraded",
                 "neo4j": "ok" if neo4j_ok else "down",
                 "node_counts": node_counts,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
 

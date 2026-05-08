@@ -52,9 +52,7 @@ async def trace_for_evidence(
     cashout_agents: dict[str, dict[str, Any]] = {}
 
     for seed in seed_wallet_ids:
-        sankey = await analytics_trace(
-            seed, max_depth=max_depth, since_days=since_days, client=c
-        )
+        sankey = await analytics_trace(seed, max_depth=max_depth, since_days=since_days, client=c)
         sankey_per_seed[seed] = sankey
         seed_paths = await analytics_paths(
             seed,

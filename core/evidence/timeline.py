@@ -8,7 +8,6 @@ evidence builder and the investigator UI.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -81,10 +80,7 @@ async def build_timeline(
             {
                 "kind": "transaction",
                 "timestamp": str(r.get("ts")) if r.get("ts") else None,
-                "description": (
-                    f"{r.get('src')} → {r.get('dst')} GHS "
-                    f"{float(r.get('amount') or 0):.2f}"
-                ),
+                "description": (f"{r.get('src')} → {r.get('dst')} GHS {float(r.get('amount') or 0):.2f}"),
                 "metadata": {
                     "tx_id": r.get("tx_id"),
                     "src_wallet_id": r.get("src"),
@@ -132,13 +128,17 @@ async def build_timeline(
     # Workflow events from Postgres: alerts touching this cluster, takedowns.
     async with get_async_session() as db:
         alerts = (
-            await db.execute(
-                select(Alert)
-                .where(Alert.cluster_id == cluster_id)
-                .order_by(Alert.created_at.asc())
-                .limit(max_events // 4)
+            (
+                await db.execute(
+                    select(Alert)
+                    .where(Alert.cluster_id == cluster_id)
+                    .order_by(Alert.created_at.asc())
+                    .limit(max_events // 4)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for a in alerts:
             events.append(
                 {
@@ -157,12 +157,16 @@ async def build_timeline(
             )
 
         takedowns = (
-            await db.execute(
-                select(Takedown)
-                .where(Takedown.cluster_id == cluster_id)
-                .order_by(Takedown.initiated_at.asc())
+            (
+                await db.execute(
+                    select(Takedown)
+                    .where(Takedown.cluster_id == cluster_id)
+                    .order_by(Takedown.initiated_at.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for t in takedowns:
             events.append(
                 {

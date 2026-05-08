@@ -18,9 +18,10 @@ re-fire against the same node.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as redis_async
 from sqlalchemy import select, update
@@ -70,9 +71,7 @@ class _RunStats:
         }
 
 
-async def _wallet_contexts(
-    client: Neo4jClient, *, limit: int
-) -> list[dict[str, Any]]:
+async def _wallet_contexts(client: Neo4jClient, *, limit: int) -> list[dict[str, Any]]:
     """Yield per-wallet contexts. Includes computed fields (account_age_days,
     idle_days, dormant_days) so common rule conditions are satisfiable."""
 
@@ -123,9 +122,7 @@ async def _wallet_contexts(
     return contexts
 
 
-async def _agent_contexts(
-    client: Neo4jClient, *, limit: int
-) -> list[dict[str, Any]]:
+async def _agent_contexts(client: Neo4jClient, *, limit: int) -> list[dict[str, Any]]:
     rows = await client.execute_read(
         """
         MATCH (a:Agent)
@@ -159,12 +156,10 @@ async def _agent_contexts(
 
 async def _active_rules(db: AsyncSession, modes: Iterable[str]) -> list[Rule]:
     rows = (
-        await db.execute(
-            select(Rule).where(
-                Rule.status == "live", Rule.evaluation_mode.in_(tuple(modes))
-            )
-        )
-    ).scalars().all()
+        (await db.execute(select(Rule).where(Rule.status == "live", Rule.evaluation_mode.in_(tuple(modes)))))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -211,9 +206,7 @@ async def _run_rule(
     try:
         matched = evaluate(rule.conditions or {}, context)
     except Exception as exc:  # noqa: BLE001 — bad rule shouldn't crash the run
-        logger.warning(
-            "rules.evaluate.error", rule_id=rule.id, error=str(exc)
-        )
+        logger.warning("rules.evaluate.error", rule_id=rule.id, error=str(exc))
         stats.errors += 1
         return
     if not matched:
@@ -261,25 +254,19 @@ async def _run_rule(
         RuleTrigger(
             id=f"trig-{uuid.uuid4().hex[:12]}",
             rule_id=rule.id,
-            triggered_at=datetime.now(timezone.utc),
+            triggered_at=datetime.now(UTC),
             event_id=None,
             node_id=target_id,
             node_type=target_type,
             context={
-                "snapshot": {
-                    k: v for k, v in context.items() if not k.startswith("_")
-                },
+                "snapshot": {k: v for k, v in context.items() if not k.startswith("_")},
                 "explanation": explain(rule.conditions or {}, context),
             },
             actions_executed=actions,
             outcome="success" if overall_ok else "failed",
         )
     )
-    await db.execute(
-        update(Rule)
-        .where(Rule.id == rule.id)
-        .values(trigger_count=Rule.trigger_count + 1)
-    )
+    await db.execute(update(Rule).where(Rule.id == rule.id).values(trigger_count=Rule.trigger_count + 1))
     stats.triggers_written += 1
     stats.by_rule[rule.id] = stats.by_rule.get(rule.id, 0) + 1
 
@@ -296,10 +283,7 @@ async def _run_rule(
                 "node_type": target_type,
                 "node_id": target_id,
                 "outcome": "success" if overall_ok else "failed",
-                "actions": [
-                    {"type": a["type"], "ok": a["ok"]}
-                    for a in actions
-                ],
+                "actions": [{"type": a["type"], "ok": a["ok"]} for a in actions],
             },
         )
     except Exception:  # noqa: BLE001

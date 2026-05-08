@@ -14,7 +14,7 @@ This module exposes the dataclass used to feed the expansion algorithm.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class Seed:
 
     def __post_init__(self) -> None:
         if self.seeded_at is None:
-            object.__setattr__(self, "seeded_at", datetime.now(timezone.utc))
+            object.__setattr__(self, "seeded_at", datetime.now(UTC))
 
 
 # Map of node_type → (graph label, property key) pairs used to look the seed

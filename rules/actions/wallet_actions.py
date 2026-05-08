@@ -27,12 +27,8 @@ async def _set_wallet(wallet_id: str, props: dict[str, Any]) -> dict[str, Any] |
 
 
 async def _freeze(ctx: ActionContext) -> ActionResult:
-    res = await _set_wallet(
-        ctx.target,
-        {"status": "frozen", "freeze_date": "_NEO4J_NOW_"},
-    )
-    # The `_NEO4J_NOW_` placeholder above doesn't actually work since we're
-    # passing as a parameter — switch to a dedicated freeze cypher.
+    # Dedicated freeze cypher — uses Neo4j's datetime() inside the query
+    # rather than passing a placeholder via the generic _set_wallet helper.
     client = get_neo4j_client()
     rows = await client.execute_write(
         """

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from core.mesh.decay import (
     apply_decay,
@@ -28,8 +28,8 @@ def test_zero_elapsed_preserves_strength() -> None:
 
 
 def test_decayed_strength_uses_edge_type_half_life() -> None:
-    now = datetime(2024, 1, 31, tzinfo=timezone.utc)
-    last = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 31, tzinfo=UTC)
+    last = datetime(2024, 1, 1, tzinfo=UTC)
     s = decayed_strength("SENT_TO", base_strength=0.8, last_seen=last, now=now)
     expected = 0.8 * 0.5  # 30 days at 30-day half-life
     assert abs(s - expected) < 1e-6

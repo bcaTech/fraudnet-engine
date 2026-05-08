@@ -14,7 +14,7 @@ Ask-Me-First on their next outbound transfer.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from config.logging import get_logger
@@ -99,5 +99,5 @@ async def run_sleeper_scan() -> dict[str, Any]:
     return {
         "sleeper_count": len(sleepers),
         "sleepers": sleepers,
-        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "scanned_at": datetime.now(UTC).isoformat(),
     }

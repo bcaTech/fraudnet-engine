@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,9 +23,9 @@ from .jwt import create_access_token
 from .passwords import hash_password, needs_rehash, verify_password
 from .rbac import (
     ALL_ROLES,
+    ROLE_ADMIN,
     CurrentUser,
     require_role,
-    ROLE_ADMIN,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -74,9 +74,7 @@ def _user_to_dict(u: User) -> dict[str, Any]:
 
 @router.post("/login")
 async def login(payload: LoginRequest, db: DBSessionDep) -> APIResponse[TokenResponse]:
-    user = (
-        await db.execute(select(User).where(User.username == payload.username))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.username == payload.username))).scalar_one_or_none()
     if user is None or not user.active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     if not verify_password(payload.password, user.password_hash):
@@ -85,7 +83,7 @@ async def login(payload: LoginRequest, db: DBSessionDep) -> APIResponse[TokenRes
     # Opportunistic rehash if scheme parameters changed.
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(payload.password)
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.now(UTC)
     await db.commit()
 
     token, exp = create_access_token(
@@ -93,9 +91,7 @@ async def login(payload: LoginRequest, db: DBSessionDep) -> APIResponse[TokenRes
         username=user.username,
         role=user.role,
     )
-    return ok(
-        TokenResponse(access_token=token, expires_at=exp, user=_user_to_dict(user))
-    )
+    return ok(TokenResponse(access_token=token, expires_at=exp, user=_user_to_dict(user)))
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +110,7 @@ async def me(user: CurrentUser, db: DBSessionDep) -> APIResponse[dict[str, Any]]
                 "anonymous": True,
             }
         )
-    record = (
-        await db.execute(select(User).where(User.id == user.sub))
-    ).scalar_one_or_none()
+    record = (await db.execute(select(User).where(User.id == user.sub))).scalar_one_or_none()
     if record is None:
         # Token valid but user record gone — return token claims directly.
         return ok(
@@ -140,9 +134,7 @@ async def me(user: CurrentUser, db: DBSessionDep) -> APIResponse[dict[str, Any]]
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-async def create_user(
-    payload: UserCreateRequest, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def create_user(payload: UserCreateRequest, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     if payload.role not in ALL_ROLES:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -150,9 +142,7 @@ async def create_user(
         )
     existing = (
         await db.execute(
-            select(User).where(
-                (User.username == payload.username) | (User.email == payload.email)
-            )
+            select(User).where((User.username == payload.username) | (User.email == payload.email))
         )
     ).scalar_one_or_none()
     if existing is not None:

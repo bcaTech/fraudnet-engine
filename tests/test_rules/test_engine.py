@@ -19,7 +19,6 @@ import pytest
 
 from rules.actions.registry import ActionContext, ActionRegistry, get_registry
 
-
 # ---------------------------------------------------------------------------
 # Registry unit tests
 # ---------------------------------------------------------------------------
