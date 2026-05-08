@@ -32,6 +32,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from config.logging import configure_logging, get_logger
@@ -919,13 +920,39 @@ async def _seed_transactions(client: Neo4jClient, state: GraphState) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _ensure_tables_exist(engine) -> None:  # noqa: ANN001 — Engine is not generic
+    """Fail loudly if Alembic hasn't been run.
+
+    The seeder owns rows, not schema. Tables come from
+    ``alembic upgrade head`` (run by the API on startup or manually
+    against new databases).
+    """
+
+    inspector = inspect(engine)
+    expected = {t.name for t in Base.metadata.sorted_tables}
+    actual = set(inspector.get_table_names())
+    missing = sorted(expected - actual)
+    if missing:
+        raise RuntimeError(
+            "seed: tables missing — run `alembic upgrade head` first. "
+            f"Missing: {missing}"
+        )
+
+
 def _seed_postgres(state: GraphState, *, reset: bool) -> None:
+    """Seed Postgres. Tables are owned by Alembic — run
+    ``alembic upgrade head`` before invoking the seeder. Reset wipes
+    every row from every table; it does not DROP+RECREATE.
+    """
+
     engine = get_sync_engine()
+    _ensure_tables_exist(engine)
     if reset:
         logger.info("seed.postgres.wipe.start")
-        Base.metadata.drop_all(engine)
+        with engine.begin() as conn:
+            for table in reversed(Base.metadata.sorted_tables):
+                conn.exec_driver_sql(f'TRUNCATE TABLE "{table.name}" CASCADE')
         logger.info("seed.postgres.wipe.complete")
-    Base.metadata.create_all(engine)
 
     with get_sync_session() as session:
         _seed_users(session, state)

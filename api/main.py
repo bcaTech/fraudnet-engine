@@ -13,8 +13,10 @@ Run locally with ``uvicorn api.main:app --reload``.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +47,22 @@ from core.graph.queries import COUNT_BY_LABEL
 from core.graph.schema import initialize_schema
 
 logger = get_logger(__name__)
+
+
+def _run_alembic_upgrade() -> None:
+    """Apply Alembic migrations up to ``head`` synchronously.
+
+    Run from a thread executor inside the FastAPI lifespan so the
+    blocking SQLAlchemy/Alembic calls don't stall the event loop.
+    """
+
+    from alembic import command
+    from alembic.config import Config
+
+    repo_root = Path(__file__).resolve().parents[1]
+    cfg = Config(str(repo_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(repo_root / "alembic"))
+    command.upgrade(cfg, "head")
 
 
 @asynccontextmanager
@@ -78,19 +96,17 @@ async def lifespan(app: FastAPI):
         logger.error("api.schema.init.failed", error=str(exc))
         raise
 
-    # Bootstrap relational schema in dev / first boot. Production uses
-    # Alembic migrations and this is a no-op for already-existing tables.
-    if settings.environment != "production":
+    # Run Alembic migrations on startup. Idempotent — applies any
+    # pending revisions and is a no-op when the DB is already at head.
+    # Production deployments may prefer to run this as a separate job
+    # before traffic arrives; setting RUN_MIGRATIONS_ON_STARTUP=false
+    # disables the inline run.
+    if settings.run_migrations_on_startup:
         try:
-            from db.models import Base
-            from db.session import get_async_engine
-
-            async_engine = get_async_engine()
-            async with async_engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            logger.info("api.relational.create_all.complete")
+            await asyncio.to_thread(_run_alembic_upgrade)
+            logger.info("api.alembic.upgrade.complete")
         except Exception as exc:  # noqa: BLE001 — let the API boot even if Postgres is misconfigured
-            logger.warning("api.relational.create_all.failed", error=str(exc))
+            logger.warning("api.alembic.upgrade.failed", error=str(exc))
 
     app.state.neo4j = client
 

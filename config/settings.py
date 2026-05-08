@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
     auth_required: bool = False
+    run_migrations_on_startup: bool = True
     """When False (default in dev), routes that would require auth still
     accept anonymous traffic. Login + token issuance always work; this only
     governs whether RBAC dependencies *block* unauthenticated callers."""
