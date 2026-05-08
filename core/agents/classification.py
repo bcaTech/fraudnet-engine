@@ -47,9 +47,7 @@ async def classify_one(
     return score
 
 
-async def classify_all(
-    *, persist: bool = True, limit: int = 200
-) -> dict[str, Any]:
+async def classify_all(*, persist: bool = True, limit: int = 200) -> dict[str, Any]:
     """Re-classify every agent. Used by the daily classification batch."""
 
     c = get_neo4j_client()
@@ -66,13 +64,9 @@ async def classify_all(
             by_class[score.classification] = by_class.get(score.classification, 0) + 1
             scored += 1
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "agents.classify.error", agent_id=r.get("agent_id"), error=str(exc)
-            )
+            logger.warning("agents.classify.error", agent_id=r.get("agent_id"), error=str(exc))
             errors += 1
-    logger.info(
-        "agents.classify.complete", scored=scored, errors=errors, by_class=by_class
-    )
+    logger.info("agents.classify.complete", scored=scored, errors=errors, by_class=by_class)
     return {
         "scored": scored,
         "errors": errors,

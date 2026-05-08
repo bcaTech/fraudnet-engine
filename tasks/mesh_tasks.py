@@ -9,8 +9,6 @@ Neo4j connection lifecycle.
 
 from __future__ import annotations
 
-import asyncio
-
 from config.logging import configure_logging, get_logger
 
 from .celery_app import app

@@ -20,9 +20,7 @@ from core.graph.client import Neo4jClient, get_neo4j_client
 logger = get_logger(__name__)
 
 
-async def alert_cluster_agents(
-    cluster_id: str, *, client: Neo4jClient | None = None
-) -> dict[str, Any]:
+async def alert_cluster_agents(cluster_id: str, *, client: Neo4jClient | None = None) -> dict[str, Any]:
     c = client or get_neo4j_client()
     rows = await c.execute_write(
         """
@@ -34,9 +32,7 @@ async def alert_cluster_agents(
         """,
         {"cluster_id": cluster_id},
     )
-    alerted = [
-        {"agent_id": r["agent_id"], "area": r.get("area")} for r in rows if r.get("agent_id")
-    ]
+    alerted = [{"agent_id": r["agent_id"], "area": r.get("area")} for r in rows if r.get("agent_id")]
     for entry in alerted:
         await send_agent_warning(entry["agent_id"])
     logger.info(

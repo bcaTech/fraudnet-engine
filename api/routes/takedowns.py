@@ -10,15 +10,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import selectinload
-
-from typing import Annotated
 
 from api.auth.jwt import TokenClaims
 from api.auth.rbac import (
@@ -29,7 +27,6 @@ from api.auth.rbac import (
 from api.dependencies import DBSessionDep, Neo4jDep
 from api.schemas import APIResponse, Meta, ok
 from api.websocket.publisher import CH_CLUSTER_UPDATES, publish, takedown_channel
-from core.evidence.builder import build_for_cluster
 from core.takedown.executor import execute as execute_takedown
 from core.takedown.readiness import assess as assess_readiness
 from db.models import EvidencePackage, Takedown, TakedownStep
@@ -269,9 +266,7 @@ async def complete_takedown(
     takedown is a no-op.
     """
 
-    pre = (
-        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
-    ).scalar_one_or_none()
+    pre = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
     if pre is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
 
@@ -284,11 +279,7 @@ async def complete_takedown(
         ) from exc
 
     # Re-fetch the takedown with steps for the response payload.
-    stmt = (
-        select(Takedown)
-        .where(Takedown.id == takedown_id)
-        .options(selectinload(Takedown.steps))
-    )
+    stmt = select(Takedown).where(Takedown.id == takedown_id).options(selectinload(Takedown.steps))
     td = (await db.execute(stmt)).scalar_one()
 
     # Broadcast per-step + final result to the WS feeds.
@@ -413,9 +404,7 @@ async def takedown_readiness(
     returns a normalised score plus per-check detail.
     """
 
-    td = (
-        await db.execute(select(Takedown).where(Takedown.id == takedown_id))
-    ).scalar_one_or_none()
+    td = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
 
@@ -426,9 +415,7 @@ async def takedown_readiness(
             "cluster_id": report.cluster_id,
             "ready": report.ready,
             "score": report.score,
-            "checks": [
-                {"name": ch.name, "ok": ch.ok, **ch.detail} for ch in report.checks
-            ],
+            "checks": [{"name": ch.name, "ok": ch.ok, **ch.detail} for ch in report.checks],
             "estimated_fraud_value": report.estimated_fraud_value,
         }
     )

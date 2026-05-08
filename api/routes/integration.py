@@ -278,25 +278,19 @@ async def operator_test(operator_id: str, db: DBSessionDep) -> APIResponse[dict[
     "/operators/{operator_id}/rotate-key",
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-async def rotate_operator_key(
-    operator_id: str, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def rotate_operator_key(operator_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Mint a new API key for the operator and deactivate every prior
     active key. The raw key is returned exactly once; only the SHA-256
     hash is persisted."""
 
     op = await _require_operator(db, operator_id)
     existing = (
-        await db.execute(
-            select(APIKey).where(
-                APIKey.operator_id == op.id, APIKey.active.is_(True)
-            )
-        )
-    ).scalars().all()
+        (await db.execute(select(APIKey).where(APIKey.operator_id == op.id, APIKey.active.is_(True))))
+        .scalars()
+        .all()
+    )
     inherited_perms = (
-        existing[0].permissions
-        if existing
-        else ["external.flags.write", "external.flags.query"]
+        existing[0].permissions if existing else ["external.flags.write", "external.flags.query"]
     )
     for k in existing:
         k.active = False

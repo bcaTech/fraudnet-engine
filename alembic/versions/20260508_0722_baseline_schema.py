@@ -26,7 +26,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from alembic import op
-
 from db.models import Base
 
 # revision identifiers, used by Alembic.

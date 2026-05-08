@@ -16,7 +16,7 @@ failure without double-applying side effects.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -30,7 +30,7 @@ from core.takedown.agent_alert import alert_cluster_agents
 from core.takedown.restitution import trace_restitution_candidates
 from core.takedown.sim_flag import flag_cluster_sims
 from core.takedown.wallet_freeze import freeze_cluster_wallets
-from db.models import Takedown, TakedownStep
+from db.models import Takedown
 
 logger = get_logger(__name__)
 
@@ -65,9 +65,7 @@ async def _run_alert_agents(td: Takedown, client: Neo4jClient) -> dict[str, Any]
     return result
 
 
-async def _run_notify_law_enforcement(
-    td: Takedown, client: Neo4jClient
-) -> dict[str, Any]:
+async def _run_notify_law_enforcement(td: Takedown, client: Neo4jClient) -> dict[str, Any]:
     """Lightweight LE notification: trace restitution candidates and
     record them on the step. The actual referral creation belongs to
     the analyst once they have a case open with the agency."""
@@ -80,11 +78,10 @@ async def _run_notify_law_enforcement(
 
 
 async def _run_generate_evidence_package(
-    td: Takedown, client: Neo4jClient  # noqa: ARG001
+    td: Takedown,
+    client: Neo4jClient,  # noqa: ARG001
 ) -> dict[str, Any]:
-    pkg = await build_for_cluster(
-        td.cluster_id, takedown_id=td.id, generated_by="takedown_executor"
-    )
+    pkg = await build_for_cluster(td.cluster_id, takedown_id=td.id, generated_by="takedown_executor")
     td.evidence_package_id = pkg.id
     return {
         "package_id": pkg.id,
@@ -95,18 +92,16 @@ async def _run_generate_evidence_package(
 
 
 async def execute(
-    takedown_id: str, db: AsyncSession,
-    *, client: Neo4jClient | None = None,
+    takedown_id: str,
+    db: AsyncSession,
+    *,
+    client: Neo4jClient | None = None,
 ) -> dict[str, Any]:
     """Execute every pending step on the takedown and finalise."""
 
     c = client or get_neo4j_client()
 
-    stmt = (
-        select(Takedown)
-        .where(Takedown.id == takedown_id)
-        .options(selectinload(Takedown.steps))
-    )
+    stmt = select(Takedown).where(Takedown.id == takedown_id).options(selectinload(Takedown.steps))
     td = (await db.execute(stmt)).scalar_one_or_none()
     if td is None:
         raise ValueError(f"takedown not found: {takedown_id}")
@@ -117,7 +112,7 @@ async def execute(
     # — production wires this behind a senior_investigator approval.
     if td.status == "pending":
         td.status = "approved"
-        td.approved_at = datetime.now(timezone.utc)
+        td.approved_at = datetime.now(UTC)
 
     step_results: list[dict[str, Any]] = []
     for step in sorted(td.steps, key=lambda s: _step_order(s.step_type)):
@@ -130,16 +125,16 @@ async def execute(
             continue
         handler = globals()[handler_name]
         step.status = "in_progress"
-        step.started_at = datetime.now(timezone.utc)
+        step.started_at = datetime.now(UTC)
         try:
             detail = await handler(td, c)
             step.status = "completed"
-            step.completed_at = datetime.now(timezone.utc)
+            step.completed_at = datetime.now(UTC)
             step.detail = detail
             step_results.append({"step": step.step_type, "ok": True, "detail": detail})
         except Exception as exc:  # noqa: BLE001 — surface on the step, keep going
             step.status = "failed"
-            step.completed_at = datetime.now(timezone.utc)
+            step.completed_at = datetime.now(UTC)
             step.detail = {"error": str(exc)}
             logger.error(
                 "takedown.step.failed",
@@ -150,12 +145,11 @@ async def execute(
             step_results.append({"step": step.step_type, "ok": False, "error": str(exc)})
 
     failed_critical = any(
-        not r["ok"] and r["step"] in ("freeze_wallets", "generate_evidence_package")
-        for r in step_results
+        not r["ok"] and r["step"] in ("freeze_wallets", "generate_evidence_package") for r in step_results
     )
     if not failed_critical:
         td.status = "completed"
-        td.completed_at = datetime.now(timezone.utc)
+        td.completed_at = datetime.now(UTC)
         await c.execute_write(
             "MATCH (cl:Cluster {cluster_id: $cluster_id}) SET cl.status = 'takedown_complete'",
             {"cluster_id": td.cluster_id},

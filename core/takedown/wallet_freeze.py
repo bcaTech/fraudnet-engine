@@ -19,9 +19,7 @@ from core.graph.client import Neo4jClient, get_neo4j_client
 logger = get_logger(__name__)
 
 
-async def freeze_cluster_wallets(
-    cluster_id: str, *, client: Neo4jClient | None = None
-) -> dict[str, Any]:
+async def freeze_cluster_wallets(cluster_id: str, *, client: Neo4jClient | None = None) -> dict[str, Any]:
     c = client or get_neo4j_client()
     rows = await c.execute_write(
         """

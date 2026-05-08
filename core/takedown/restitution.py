@@ -22,7 +22,9 @@ logger = get_logger(__name__)
 
 
 async def trace_restitution_candidates(
-    cluster_id: str, *, since_days: int = 90,
+    cluster_id: str,
+    *,
+    since_days: int = 90,
     client: Neo4jClient | None = None,
 ) -> dict[str, Any]:
     """Find wallets that originated fund flows into the cluster — those

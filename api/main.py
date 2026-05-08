@@ -60,8 +60,7 @@ async def lifespan(app: FastAPI):
     # localhost entries — a common deploy-misconfiguration footgun.
     if settings.environment == "production":
         unsafe_origins = [
-            o for o in settings.cors_origins
-            if "localhost" in o or "127.0.0.1" in o or o == "*"
+            o for o in settings.cors_origins if "localhost" in o or "127.0.0.1" in o or o == "*"
         ]
         if unsafe_origins:
             logger.error(
@@ -83,8 +82,6 @@ async def lifespan(app: FastAPI):
     # Alembic migrations and this is a no-op for already-existing tables.
     if settings.environment != "production":
         try:
-            from sqlalchemy import inspect
-
             from db.models import Base
             from db.session import get_async_engine
 

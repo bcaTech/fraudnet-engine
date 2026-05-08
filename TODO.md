@@ -1,133 +1,117 @@
 # TODO
 
-Running list of work that's spec'd in `CLAUDE.md` but not yet implemented,
-hot paths that are stubs, and issues we hit but moved past in the last
-sprint. Issues should land here rather than rotting in commit messages.
+The running list of unfinished work. Items are added when discovered
+and removed when shipped, so the diff history of this file maps
+roughly to outstanding work over time.
 
-## Stubs to flesh out
+Last sweep: 2026-05-08.
 
-- **`tasks/periodic.py` heartbeats** — only `evaluate_scheduled_rules` and
-  `rescore_active_clusters` are real. The others (`apply_temporal_decay`,
-  `scancom_batch_import`, `sleeper_wallet_scan`, `campaign_detection`,
-  `process_inbound_integration`, `process_outbound_integration`,
-  `rules_performance_aggregation`, `external_operator_health_check`,
-  `law_enforcement_case_reminders`) log a heartbeat and return `stub`.
-  Most have a real implementation already in `core/analytics/` or
-  `core/mesh/decay.py` — they just need wiring.
-- **`tasks/ml_tasks.py`** — all three tasks (`retrain_anomaly_baselines`,
-  `evaluate_gnn_performance`, `batch_score_wallets`) are stubs. The GNN
-  model in `core/ml/gnn_model.py` doesn't exist yet — entire `core/ml/`
-  module needs to be built.
-- **`tasks/report_tasks.py`** — `generate_analytics_snapshot` and
-  `build_evidence_package` are stubs. Evidence build is now real (in
-  `core/evidence/builder.py`); the Celery wrapper just needs to call it.
+## Still open
+
+### Telco / actuator integration (waiting on partners)
+
+- **`scancom_batch_import`** — heartbeat-only Celery stub. Real
+  implementation pulls SIM/IMEI/cell-tower deltas from the Scancom
+  feed. Blocked on Scancom API contract.
+- **MoMo BSS freeze API** (`core/takedown/wallet_freeze.py:apply_external_freeze`) —
+  recorded-intent only. Real implementation HTTP-POSTs to the BSS
+  with HMAC-signed body + idempotency key from `takedown_id`. Blocked
+  on BSS endpoint spec.
+- **Scancom registry SIM flag**
+  (`core/takedown/sim_flag.py:apply_external_sim_flag`) — same
+  pattern, same blocker.
+- **Agent SMS dispatch**
+  (`core/takedown/agent_alert.py:send_agent_warning`) — needs the
+  operator notification service endpoint.
+- **Outbound shared-flag delivery**
+  (`tasks/periodic.py:process_outbound_integration`) — currently
+  stamps `action_taken='sent'` without an actual HTTP call. Real
+  delivery hits `/external/v1/flags` on the receiving operator with
+  the same HMAC pattern as `custom_webhook`.
+
+### ML / GNN
+
+- **`core/ml/gnn_model.py`** is a placeholder that falls through to
+  the behavioural baseline. Real GraphSAGE / GAT implementation
+  blocked on:
+  - PyTorch + PyTorch Geometric in the default container (currently
+    in the optional `[ml]` extras, ~3 GB image bloat).
+  - A GPU host for training (or 8+ CPU cores + 16 GB RAM minimum).
+  - Labelled training data — current cluster_id-based labels are
+    leaky for any reasonable feature set; need analyst-confirmed
+    fraud examples.
+- **Model performance over time** — `evaluate_gnn_performance` runs
+  weekly. Add drift detection (population stability index, prediction
+  histogram) before relying on the score for any auto-action.
+
+### Auth tightening (last mile)
+
+- **Step-up auth's second factor** — `/auth/step-up` currently issues
+  the elevated token after only an admin-role check. Production
+  needs a real WebAuthn / TOTP factor here. Also needs route-level
+  `step_up=True` claim enforcement on the high-risk endpoints
+  (model promotion, takedown filing, data export — none of which
+  exist yet, so this is preparatory).
+- **API key rotation cadence** — endpoint exists; no scheduler
+  enforces the 90-day rotation policy. Either add a beat task that
+  expires keys past their rotation deadline, or rely on the operator
+  to rotate.
+- **PII redaction in `X-Audit-Extra`** — current redaction is name-
+  based (`password`, `api_key`, etc.). Add format-based detection
+  for free-text fields that might contain MSISDNs / wallet IDs.
+
+### Rules / ML interaction
+
 - **`rules/scheduler.py`, `rules/lifecycle.py`, `rules/backtest.py`,
   `rules/shadow.py`, `rules/templates.py`, `rules/parser.py`,
-  `rules/models.py`** — `CLAUDE.md` lists these but they don't exist.
-  The engine works without them (templates are inline in
-  `api/routes/rules.py`); life-cycle transitions are direct status
-  updates.
-- **`rules/actions/custom_webhook`** — recorded-intent stub. Needs HTTP
-  POST + HMAC + retry + allow-list before production use.
-- **`rules/actions/notify_external_operator`** — sets a graph property
-  but doesn't actually push to the operator's external API. Should
-  enqueue an outbound `SharedFlag` row.
-- **`core/agents/scoring.py`, `core/agents/classification.py`,
-  `core/agents/geographic.py`** — the agent risk scoring functions
-  documented in CLAUDE.md don't exist as modules. The seeded values
-  approximate them; production must compute from live data.
-- **`core/takedown/executor.py`** — the coordinated-takedown executor
-  is a placeholder. The current flow is "mark all steps completed in
-  one transaction"; real implementation runs each step against its
-  actuator (MoMo wallet freeze API, Scancom SIM flag API, agent SMS).
-- **`core/takedown/wallet_freeze.py`, `sim_flag.py`, `agent_alert.py`,
-  `restitution.py`** — actuator integrations not yet implemented.
-- **`api/middleware/audit.py`** — referenced in CLAUDE.md as required
-  for every protected action. Audit events are emitted ad-hoc by
-  individual routes, not via the centralised middleware.
+  `rules/models.py`** — listed in CLAUDE.md but the engine works
+  without them. Templates are inline in `api/routes/rules.py`;
+  lifecycle transitions are direct status updates. Worth pulling
+  into dedicated modules when we ship the rule-create UI.
 
-## Auth tightening
+### Operability
 
-- The `User` foreign key is missing on most workflow tables (alert
-  acknowledgements, takedowns, evidence packages all hard-code
-  `"system"`). Once auth is enforced everywhere, populate
-  `acknowledged_by` / `initiated_by` / `generated_by` / etc. from the
-  authenticated principal.
-- `/auth/users` POST exists; PUT / DELETE / disable endpoints are not
-  implemented.
-- Step-up auth (CLAUDE.md §7.1) for "high-risk" operations
-  (model promotion, user role changes, data export, takedown filing)
-  is not implemented.
-- API keys for external operators are issued but never rotated. Need
-  `POST /api/integration/operators/{id}/rotate-key` + an expiry
-  policy.
+- **mypy gate** — currently advisory in CI (`continue-on-error: true`).
+  Drive errors to zero and flip the gate. Estimated 1–2 days of
+  focused work.
+- **Worker queue split** — single Celery queue today. When ML
+  training jobs grow past 30s, split into `tasks.heavy` (training,
+  evidence builds) and `tasks.light` (decay, dedup) so heavy work
+  doesn't starve fast tasks.
+- **Lakehouse-backed audit archive** — current `audit_logs` lives
+  only in Postgres. CLAUDE.md §6.1 calls for monthly Iceberg
+  archive after 6 months. Blocked on the lakehouse rollout.
 
-## Data model / migrations
+### Frontend integration
 
-- **No Alembic migrations.** Tables are created via
-  `Base.metadata.create_all()` in the seeder. First migration should
-  capture the current schema snapshot.
-- **Cluster `seed_date` stored as ISO string.** Should be a Neo4j
-  datetime. The query layer wraps it in `datetime(...)` to compensate;
-  fix this in the seeder + any other writers.
+- **WS reconnect / backfill** — backend doesn't keep a per-connection
+  cursor. If the dashboard needs to fill in events missed during a
+  brief disconnect, switch the bridge from Redis pub/sub to Redis
+  Streams and add an `?since=` parameter on each feed.
+- **CORS hardening in production** — startup logs an error if
+  `CORS_ORIGINS` still has localhost when `ENVIRONMENT=production`,
+  but the API still boots. Decide whether to fail-fast instead.
 
-## Operational
+### Documentation
 
-- **Worker / beat container healthchecks fail** because the shared
-  Dockerfile defines a HEALTHCHECK that probes port 8000. Either drop
-  the healthcheck for those services in compose or expose a small HTTP
-  health server in the Celery process.
-- **`Base.metadata.create_all()` runs are manual** when adding new
-  models. The first time the API hits a table that doesn't exist, it
-  500s. Either run `create_all` at API startup (dev-only) or commit to
-  Alembic for prod.
-- **`celerybeat-schedule` SQLite file** ships in the volume mount.
-  Acceptable for dev; in prod use the Redis scheduler or a real
-  persistent volume.
-
-## Frontend integration
-
-- The dashboard project (`fraudnet-dashboard`) is in a sibling repo
-  and shares CORS origins. Once it lands in production, lock down
-  `CORS_ORIGINS` to the allowed list.
-- WebSocket reconnect / backfill on disconnect is a frontend concern;
-  backend doesn't currently keep a per-connection cursor. If the
-  frontend needs to fill in events missed during a brief disconnect,
-  add an offset-aware "since" parameter on each feed and back it with
-  Redis Streams instead of pub/sub.
-
-## Tests
-
-- Integration tests are happy-path only. Need negative cases on the
-  freeze / takedown / evidence flows.
-- The fake Neo4j in `tests/test_mesh/test_expansion.py` only covers
-  seed-not-found and zero-neighbours. Expand to verify a 3-node
-  cluster's confidence math.
-- No Kafka-consumer test coverage yet. The consumer base is a good
-  candidate for a `Testcontainers`-driven integration test.
-- mypy is currently advisory in CI (`continue-on-error: true`). Drive
-  it to zero errors and flip the gate.
+- **Per-service runbook depth** — runbooks shipped (`api.md`,
+  `worker.md`, `consumer.md`) but each is shallow. Add escalation
+  contact details and incident-response timelines as the on-call
+  rotation gets defined.
+- **More ADRs** — three are written (single-service, Neo4j vs
+  Memgraph, Redis vs Aerospike). Future candidates: bcrypt-direct vs
+  passlib (compatibility decision), the `_run_async` per-task client
+  teardown pattern, the audit middleware vs decorator approach.
 
 ## Known issues / regressions
 
-- Rule R07 ("KYC tier mismatch") fires on every scheduled run against
-  the same wallet pool until the 15-minute Redis dedup window expires.
-  After many runs this leaves a long tail of wallets carrying
-  `kyc_pending_reverification=true` in dev. Consider a daily cleanup
-  task.
-- `passlib` 1.7.4 + `bcrypt` 4.1+ are incompatible — we bypass passlib
-  by calling `bcrypt` directly in `api/auth/passwords.py`. If passlib
-  releases a fix, simplify and switch back.
-- `EmailStr` from Pydantic needs the `email-validator` package which
-  isn't a project dep — `api/auth/routes.py` uses a plain regex
-  pattern instead. Acceptable for now; switch to `EmailStr` once we
-  add the dep.
-
-## Documentation
-
-- Per-service runbooks (`docs/runbooks/*.md`) referenced in CLAUDE.md
-  haven't been written. At minimum add ones for the API, the worker,
-  and the consumer.
-- ADRs (`docs/adrs/`) — none yet. The decisions to use Neo4j over
-  Memgraph, Redis over Aerospike, and a single FastAPI service over
-  the FraudNet 2.0 microservice topology should be captured.
+- **passlib + bcrypt 4.1+ incompatibility** — bypassed by calling
+  `bcrypt` directly in `api/auth/passwords.py`. Switch back to
+  passlib if upstream releases a fix.
+- **`EmailStr` requires `email-validator`** which isn't a project
+  dep. `api/auth/routes.py` uses a plain regex pattern. Acceptable;
+  switch to `EmailStr` once we add the dep.
+- **R07 ("KYC tier mismatch") fires repeatedly** against the same
+  wallet pool. `cleanup_stale_rule_state` (nightly Celery beat task)
+  clears the `kyc_pending_reverification` flag after 7 days so the
+  demo doesn't accumulate a long tail.

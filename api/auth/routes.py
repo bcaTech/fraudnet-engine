@@ -173,9 +173,7 @@ async def list_users(db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
 class UserUpdateRequest(BaseModel):
     role: str | None = None
     active: bool | None = None
-    email: str | None = Field(
-        None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=160
-    )
+    email: str | None = Field(None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=160)
     password: str | None = Field(None, min_length=8, max_length=200)
 
 
@@ -188,17 +186,13 @@ async def update_user(
 ) -> APIResponse[dict[str, Any]]:
     """Admin-only: update a user's role / email / password / active flag."""
 
-    user = (
-        await db.execute(select(User).where(User.id == user_id))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
 
     if payload.role is not None:
         if payload.role not in ALL_ROLES:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, f"invalid role '{payload.role}'"
-            )
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid role '{payload.role}'")
         user.role = payload.role
     if payload.active is not None:
         user.active = payload.active
@@ -216,9 +210,7 @@ async def update_user(
     "/users/{user_id}",
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-async def disable_user(
-    user_id: str, db: DBSessionDep
-) -> APIResponse[dict[str, Any]]:
+async def disable_user(user_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
     """Soft-delete: flip the active flag rather than deleting the row.
 
     Hard delete would orphan FK references on alerts / audit logs;
@@ -226,9 +218,7 @@ async def disable_user(
     in.
     """
 
-    user = (
-        await db.execute(select(User).where(User.id == user_id))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
     user.active = False

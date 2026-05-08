@@ -11,7 +11,6 @@ locally.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from core.graph.client import Neo4jClient, get_neo4j_client
 
@@ -48,9 +47,7 @@ ORDER BY area_name
 """
 
 
-async def baselines_by_area(
-    *, client: Neo4jClient | None = None
-) -> dict[str, AreaBaseline]:
+async def baselines_by_area(*, client: Neo4jClient | None = None) -> dict[str, AreaBaseline]:
     c = client or get_neo4j_client()
     rows = await c.execute_read(_PER_AREA_QUERY)
     return {
@@ -64,9 +61,7 @@ async def baselines_by_area(
     }
 
 
-def baseline_deviation(
-    *, agent_fraud_rate: float, baseline: AreaBaseline | None
-) -> float:
+def baseline_deviation(*, agent_fraud_rate: float, baseline: AreaBaseline | None) -> float:
     """Return a [0, 1] score capturing how much the agent's fraud rate
     exceeds its local baseline. ``0`` means the agent matches or beats
     the baseline; ``1`` means it's at least 5× the baseline."""

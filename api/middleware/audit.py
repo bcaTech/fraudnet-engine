@@ -96,22 +96,14 @@ def _redact(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(payload, dict):
         return {}
-    return {
-        k: ("***" if k.lower() in _REDACTED_FIELDS else v)
-        for k, v in payload.items()
-    }
+    return {k: ("***" if k.lower() in _REDACTED_FIELDS else v) for k, v in payload.items()}
 
 
 class AuditMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
         method = request.method.upper()
-        if (
-            method not in _AUDITED_METHODS
-            or not any(path.startswith(p) for p in _AUDITED_PREFIXES)
-        ):
+        if method not in _AUDITED_METHODS or not any(path.startswith(p) for p in _AUDITED_PREFIXES):
             return await call_next(request)
 
         # Per-request id helps correlate the audit row with logs.
@@ -144,8 +136,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         actor_id = getattr(principal, "sub", None) if principal else None
         actor_role = getattr(principal, "role", None) if principal else None
         actor_kind = (
-            "user" if (actor_id and actor_id != "anon")
-            else ("system" if actor_id == "anon" else "anonymous")
+            "user" if (actor_id and actor_id != "anon") else ("system" if actor_id == "anon" else "anonymous")
         )
         kind, target = _target_from(path)
         extra_raw = request.headers.get("X-Audit-Extra")

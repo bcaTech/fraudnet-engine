@@ -144,17 +144,13 @@ def test_expansion_three_node_cluster_confidence() -> None:
             "WHERE n[$key]": _neighbours_for,
         }
     )
-    seed = Seed(
-        node_id="MOMO-SEED", node_type="wallet", confidence=0.9, source="analyst"
-    )
+    seed = Seed(node_id="MOMO-SEED", node_type="wallet", confidence=0.9, source="analyst")
 
     # Lower the threshold so the test focuses on BFS shape rather than the
     # confidence-formula tuning. The default 0.25 includes weights that
     # require behavioural/predictive signal we don't supply in this fake.
     config = ExpansionConfig(expansion_threshold=0.05, max_depth=3)
-    result = asyncio.run(
-        expand_from_seed(seed, client=fake, persist=False, config=config)
-    )
+    result = asyncio.run(expand_from_seed(seed, client=fake, persist=False, config=config))
     natural_ids = {n.natural_id for n in result.nodes}
     assert natural_ids == {"MOMO-SEED", "MOMO-A", "MOMO-B"}
 

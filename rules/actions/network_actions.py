@@ -74,9 +74,7 @@ async def _notify_external_operator(ctx: ActionContext) -> ActionResult:
         {"wallet_id": ctx.target, "operator": operator_param},
     )
     if not rows:
-        return ActionResult(
-            ok=False, detail={"target": ctx.target}, error="wallet not found"
-        )
+        return ActionResult(ok=False, detail={"target": ctx.target}, error="wallet not found")
     msisdn = rows[0].get("msisdn") or ctx.target
 
     flags_queued = 0
@@ -84,19 +82,13 @@ async def _notify_external_operator(ctx: ActionContext) -> ActionResult:
     async with get_async_session() as db:
         if operator_param == "all_connected":
             ops = (
-                await db.execute(
-                    select(ExternalOperator).where(
-                        ExternalOperator.status == "connected"
-                    )
-                )
-            ).scalars().all()
+                (await db.execute(select(ExternalOperator).where(ExternalOperator.status == "connected")))
+                .scalars()
+                .all()
+            )
         else:
             single = (
-                await db.execute(
-                    select(ExternalOperator).where(
-                        ExternalOperator.id == operator_param
-                    )
-                )
+                await db.execute(select(ExternalOperator).where(ExternalOperator.id == operator_param))
             ).scalar_one_or_none()
             ops = [single] if single is not None else []
         for op in ops:

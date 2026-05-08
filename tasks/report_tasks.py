@@ -7,8 +7,6 @@ lakehouse is live it will write a daily Iceberg snapshot.
 
 from __future__ import annotations
 
-import asyncio
-
 from config.logging import configure_logging, get_logger
 
 from .celery_app import app
@@ -80,9 +78,7 @@ def build_evidence_package(cluster_id: str, case_id: str | None = None) -> dict:
                 await client.connect()
         except AttributeError:
             await client.connect()
-        pkg = await build_for_cluster(
-            cluster_id, case_id=case_id, generated_by="celery"
-        )
+        pkg = await build_for_cluster(cluster_id, case_id=case_id, generated_by="celery")
         return {
             "id": pkg.id,
             "cluster_id": pkg.cluster_id,

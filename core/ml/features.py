@@ -15,18 +15,17 @@ from dataclasses import dataclass
 
 from core.graph.client import Neo4jClient, get_neo4j_client
 
-
 FEATURE_NAMES: tuple[str, ...] = (
     "risk_score",
     "behavioral_score",
     "predictive_score",
     "kyc_tier",
     "balance",
-    "out_degree",            # number of distinct counterparties (sent)
-    "in_degree",             # number of distinct counterparties (received)
-    "outbound_total_30d",    # sum of SENT_TO amounts in last 30d
-    "inbound_total_30d",     # sum of inbound SENT_TO amounts in last 30d
-    "cashouts_30d",          # number of CASHED_OUT_AT in last 30d
+    "out_degree",  # number of distinct counterparties (sent)
+    "in_degree",  # number of distinct counterparties (received)
+    "outbound_total_30d",  # sum of SENT_TO amounts in last 30d
+    "inbound_total_30d",  # sum of inbound SENT_TO amounts in last 30d
+    "cashouts_30d",  # number of CASHED_OUT_AT in last 30d
     "is_sleeper",
     "on_watchlist",
 )
@@ -75,14 +74,10 @@ RETURN
 """
 
 
-_FETCH_ALL_CYPHER = _FETCH_CYPHER.replace(
-    "WHERE w.wallet_id IN $wallet_ids", ""
-) + "\nLIMIT $limit"
+_FETCH_ALL_CYPHER = _FETCH_CYPHER.replace("WHERE w.wallet_id IN $wallet_ids", "") + "\nLIMIT $limit"
 
 
-async def fetch_batch(
-    wallet_ids: list[str], *, client: Neo4jClient | None = None
-) -> list[WalletFeatures]:
+async def fetch_batch(wallet_ids: list[str], *, client: Neo4jClient | None = None) -> list[WalletFeatures]:
     if not wallet_ids:
         return []
     c = client or get_neo4j_client()
@@ -90,9 +85,7 @@ async def fetch_batch(
     return [_row_to_features(r) for r in rows]
 
 
-async def fetch_population(
-    *, limit: int = 1000, client: Neo4jClient | None = None
-) -> list[WalletFeatures]:
+async def fetch_population(*, limit: int = 1000, client: Neo4jClient | None = None) -> list[WalletFeatures]:
     """Fetch a batch of wallets without naming them, capped at ``limit``.
     Used by training jobs to build a sample."""
 

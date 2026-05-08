@@ -14,7 +14,7 @@ from config.logging import get_logger
 from core.graph.client import get_neo4j_client
 
 from .features import fetch_batch, fetch_population
-from .training import TrainedModel, load_current
+from .training import load_current
 
 logger = get_logger(__name__)
 

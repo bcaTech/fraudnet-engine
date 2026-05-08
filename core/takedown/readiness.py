@@ -27,7 +27,7 @@ class ReadinessCheck:
 class ReadinessReport:
     cluster_id: str
     ready: bool
-    score: float       # [0, 1] = pass_count / total_checks
+    score: float  # [0, 1] = pass_count / total_checks
     checks: list[ReadinessCheck]
     estimated_fraud_value: float
 
@@ -59,9 +59,7 @@ _MIN_CONFIDENCE = 0.70
 _MIN_MEMBERS = 4
 
 
-async def assess(
-    cluster_id: str, *, client: Neo4jClient | None = None
-) -> ReadinessReport:
+async def assess(cluster_id: str, *, client: Neo4jClient | None = None) -> ReadinessReport:
     c = client or get_neo4j_client()
     rows = await c.execute_read(_CYPHER, {"cluster_id": cluster_id})
     if not rows:
@@ -80,9 +78,7 @@ async def assess(
     cashout_edges = int(r.get("cashout_edges") or 0)
 
     checks = [
-        ReadinessCheck(
-            "cluster_exists", True, {"cluster_id": cluster_id}
-        ),
+        ReadinessCheck("cluster_exists", True, {"cluster_id": cluster_id}),
         ReadinessCheck(
             "confidence_above_threshold",
             confidence >= _MIN_CONFIDENCE,

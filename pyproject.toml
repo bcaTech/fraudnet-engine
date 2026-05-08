@@ -115,6 +115,7 @@ ignore = [
 "tests/*" = ["E501", "PLR0913"]
 "scripts/*" = ["E501"]
 "core/graph/queries.py" = ["E501"]   # Cypher strings
+"core/ml/*" = ["N803", "N806"]        # X / X_train / Xs are sklearn convention
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

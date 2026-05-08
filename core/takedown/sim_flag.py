@@ -16,9 +16,7 @@ from core.graph.client import Neo4jClient, get_neo4j_client
 logger = get_logger(__name__)
 
 
-async def flag_cluster_sims(
-    cluster_id: str, *, client: Neo4jClient | None = None
-) -> dict[str, Any]:
+async def flag_cluster_sims(cluster_id: str, *, client: Neo4jClient | None = None) -> dict[str, Any]:
     c = client or get_neo4j_client()
     rows = await c.execute_write(
         """
@@ -37,9 +35,7 @@ async def flag_cluster_sims(
     flagged = [r["imsi"] for r in rows if r.get("imsi")]
     for imsi in flagged:
         await apply_external_sim_flag(imsi)
-    logger.info(
-        "takedown.sim_flag.complete", cluster_id=cluster_id, count=len(flagged)
-    )
+    logger.info("takedown.sim_flag.complete", cluster_id=cluster_id, count=len(flagged))
     return {"flagged": len(flagged), "imsis": flagged}
 
 

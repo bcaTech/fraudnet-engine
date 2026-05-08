@@ -16,9 +16,8 @@ from __future__ import annotations
 import os
 import pickle
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
@@ -65,9 +64,7 @@ class TrainedModel:
         return [float(p) for p in self.clf.predict_proba(X)[:, 1]]
 
 
-async def train(
-    *, sample_size: int = 1000, save: bool = True
-) -> TrainingResult:
+async def train(*, sample_size: int = 1000, save: bool = True) -> TrainingResult:
     """Pull a sample, fit a logistic regression, persist, return metrics."""
 
     samples: list[WalletFeatures] = await fetch_population(limit=sample_size)
@@ -80,13 +77,10 @@ async def train(
     negatives = len(y) - positives
     if positives < 5 or negatives < 5:
         raise ValueError(
-            "training failed: not enough class diversity "
-            f"(positives={positives}, negatives={negatives})"
+            f"training failed: not enough class diversity (positives={positives}, negatives={negatives})"
         )
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42, stratify=y
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
 
     scaler = StandardScaler().fit(X_train)
     Xs = scaler.transform(X_train)
@@ -109,18 +103,14 @@ async def train(
         scaler=scaler,
         clf=clf,
         feature_names=FEATURE_NAMES,
-        trained_at=datetime.now(timezone.utc).isoformat(),
+        trained_at=datetime.now(UTC).isoformat(),
         metrics=metrics,
     )
 
     saved_path = ""
     if save:
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        model_id = (
-            "behavioural-"
-            + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            + ".pkl"
-        )
+        model_id = "behavioural-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + ".pkl"
         path = MODEL_DIR / model_id
         with path.open("wb") as fh:
             pickle.dump(model, fh)

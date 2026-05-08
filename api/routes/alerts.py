@@ -8,12 +8,10 @@ consumers.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
-
-from typing import Annotated
 
 from api.auth.jwt import TokenClaims
 from api.auth.rbac import ROLE_ANALYST, require_role

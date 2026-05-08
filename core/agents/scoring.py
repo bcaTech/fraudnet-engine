@@ -44,8 +44,8 @@ class AgentInputs:
 @dataclass
 class AgentScore:
     agent_id: str
-    risk_score: float           # [0, 1]
-    classification: str         # clean | incidental | exploited | complicit
+    risk_score: float  # [0, 1]
+    classification: str  # clean | incidental | exploited | complicit
     components: dict[str, float]
 
 
@@ -97,9 +97,7 @@ def _safe_div(num: float, den: float) -> float:
     return float(num / den) if den else 0.0
 
 
-async def fetch_agent_inputs(
-    agent_id: str, *, client: Neo4jClient | None = None
-) -> AgentInputs:
+async def fetch_agent_inputs(agent_id: str, *, client: Neo4jClient | None = None) -> AgentInputs:
     c = client or get_neo4j_client()
     rows = await c.execute_read(_AGENT_INPUTS_CYPHER, {"agent_id": agent_id})
     if not rows:

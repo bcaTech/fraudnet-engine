@@ -14,7 +14,7 @@ doesn't leak a stale event loop.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from config.logging import configure_logging, get_logger
 from rules.engine import evaluate_scheduled as run_scheduled_rules
@@ -233,16 +233,20 @@ def process_inbound_integration() -> dict:
         async with get_async_session() as db:
             # Pull operator IDs that have auto_integrate set.
             ops = (
-                await db.execute(
-                    select(ExternalOperator.id).where(
-                        ExternalOperator.auto_integrate.is_(True),
-                        ExternalOperator.status == "connected",
+                (
+                    await db.execute(
+                        select(ExternalOperator.id).where(
+                            ExternalOperator.auto_integrate.is_(True),
+                            ExternalOperator.status == "connected",
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if not ops:
                 return {"actioned": 0, "auto_operators": 0}
-            cutoff = datetime.now(timezone.utc)
+            cutoff = datetime.now(UTC)
             result = await db.execute(
                 update(SharedFlag)
                 .where(
@@ -277,13 +281,13 @@ def process_outbound_integration() -> dict:
     """
 
     async def _go():
-        from sqlalchemy import and_, select, update
+        from sqlalchemy import and_, update
 
         from db.models import SharedFlag
         from db.session import get_async_session
 
         async with get_async_session() as db:
-            cutoff = datetime.now(timezone.utc)
+            cutoff = datetime.now(UTC)
             result = await db.execute(
                 update(SharedFlag)
                 .where(
@@ -366,34 +370,29 @@ def external_operator_health_check() -> dict:
     integration health UI fresh until that lands."""
 
     async def _go():
-        from sqlalchemy import select, update
+        from sqlalchemy import select
 
         from db.models import ExternalOperator
         from db.session import get_async_session
 
         async with get_async_session() as db:
             ops = (
-                await db.execute(
-                    select(ExternalOperator).where(
-                        ExternalOperator.status == "connected"
-                    )
-                )
-            ).scalars().all()
-            now = datetime.now(timezone.utc)
+                (await db.execute(select(ExternalOperator).where(ExternalOperator.status == "connected")))
+                .scalars()
+                .all()
+            )
+            now = datetime.now(UTC)
             for op in ops:
                 # If we haven't seen activity in 6h, mark degraded.
                 stale = (
-                    op.last_health_check is None
-                    or (now - op.last_health_check).total_seconds() > 6 * 3600
+                    op.last_health_check is None or (now - op.last_health_check).total_seconds() > 6 * 3600
                 )
                 op.last_health_check = now
                 op.last_health_status = "degraded" if stale else "healthy"
             await db.commit()
             return {
                 "checked": len(ops),
-                "degraded": sum(
-                    1 for o in ops if o.last_health_status == "degraded"
-                ),
+                "degraded": sum(1 for o in ops if o.last_health_status == "degraded"),
             }
 
     try:
@@ -420,17 +419,18 @@ def law_enforcement_case_reminders() -> dict:
         from db.session import get_async_session
 
         async with get_async_session() as db:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            cutoff = datetime.now(UTC) - timedelta(days=7)
             cases = (
-                await db.execute(
-                    select(LECase).where(
-                        LECase.status.in_(
-                            ("under_review", "active_investigation",
-                             "evidence_requested")
+                (
+                    await db.execute(
+                        select(LECase).where(
+                            LECase.status.in_(("under_review", "active_investigation", "evidence_requested"))
                         )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
             reminders_added = 0
             for case in cases:
@@ -455,7 +455,7 @@ def law_enforcement_case_reminders() -> dict:
                                 "more than 7 days. Update the agency or close "
                                 "if dormant."
                             ),
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=datetime.now(UTC),
                         )
                     )
                     reminders_added += 1
