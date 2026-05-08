@@ -116,6 +116,10 @@ app.conf.beat_schedule = {
         "task": "tasks.periodic.refresh_campaigns_cache",
         "schedule": schedule(run_every=15 * 60),  # every 15 min
     },
+    "purge-expired-records": {
+        "task": "tasks.periodic.purge_expired_records",
+        "schedule": crontab(hour=4, minute=15),  # nightly, after the cleanup task
+    },
 }
 
 

@@ -33,6 +33,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from config.logging import get_logger
+from core.security.encryption import encrypt
 from db.models import AuditLog
 from db.session import get_async_session
 
@@ -50,7 +51,14 @@ _AUDITED_PREFIXES = ("/api/", "/auth/")
 # Fields we redact in the X-Audit-Extra header before persisting.
 _REDACTED_FIELDS = frozenset({"password", "api_key", "secret", "token"})
 
+# Field-name patterns whose values get encrypted-at-rest before being
+# persisted to audit_logs.extra. Keys are matched case-insensitively
+# against the leaf key of the JSON payload.
+_ENCRYPTED_FIELDS = frozenset({"msisdn", "imei", "imsi", "phone", "phone_number"})
+
 _UUID_LIKE = re.compile(r"^[a-z0-9-]{6,40}$", re.I)
+_MSISDN_RE = re.compile(r"^\+?\d{7,15}$")
+_IMEI_RE = re.compile(r"^\d{14,15}$")
 
 
 def _action_for(path: str, method: str) -> str:
@@ -99,6 +107,39 @@ def _redact(payload: dict[str, Any]) -> dict[str, Any]:
     return {k: ("***" if k.lower() in _REDACTED_FIELDS else v) for k, v in payload.items()}
 
 
+def _encrypt_field(value: Any) -> Any:
+    """Wrap ``value`` in Fernet encryption if it's a non-empty string;
+    otherwise return as-is so JSON shape stays predictable."""
+
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        return {"_encrypted": True, "value": encrypt(value)}
+    except Exception:  # noqa: BLE001 — never let encryption break audit
+        return value
+
+
+def _looks_like_pii(value: str) -> bool:
+    return bool(_MSISDN_RE.match(value) or _IMEI_RE.match(value))
+
+
+def _encrypt_pii(payload: Any) -> Any:
+    """Walk a JSON-shaped payload and encrypt MSISDN / IMEI / IMSI
+    fields. Triggers on either the key name (msisdn, imei, etc.) or a
+    value that pattern-matches one of those formats."""
+
+    if isinstance(payload, dict):
+        return {
+            k: _encrypt_field(v)
+            if k.lower() in _ENCRYPTED_FIELDS
+            else (_encrypt_field(v) if isinstance(v, str) and _looks_like_pii(v) else _encrypt_pii(v))
+            for k, v in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_encrypt_pii(v) for v in payload]
+    return payload
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
@@ -139,11 +180,21 @@ class AuditMiddleware(BaseHTTPMiddleware):
             "user" if (actor_id and actor_id != "anon") else ("system" if actor_id == "anon" else "anonymous")
         )
         kind, target = _target_from(path)
+        # Encrypt the target id when it looks like raw PII (an MSISDN
+        # / IMEI passed in the URL). Most calls use synthetic ids
+        # (MOMO-..., AGT-...), so this is rarely triggered, but we
+        # cover the case for endpoints like
+        # ``/api/external/v1/flags/query?identifier=+233...`` should
+        # they ever route through audit.
+        if target and _looks_like_pii(target):
+            wrapped = _encrypt_field(target)
+            target = wrapped if isinstance(wrapped, str) else json.dumps(wrapped)
+
         extra_raw = request.headers.get("X-Audit-Extra")
         extra: dict[str, Any] | None = None
         if extra_raw:
             try:
-                extra = _redact(json.loads(extra_raw))
+                extra = _encrypt_pii(_redact(json.loads(extra_raw)))
             except (json.JSONDecodeError, TypeError):
                 extra = {"_invalid_extra": extra_raw[:200]}
 

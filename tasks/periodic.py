@@ -476,6 +476,75 @@ def law_enforcement_case_reminders() -> dict[str, Any]:
         raise
 
 
+@app.task(name="tasks.periodic.purge_expired_records")
+def purge_expired_records() -> dict[str, Any]:
+    """Daily retention purge — drops audit_logs older than
+    ``audit_retention_days``, alerts older than ``alert_retention_days``,
+    and rule triggers older than ``trigger_retention_days``.
+
+    These windows live on :class:`config.settings.Settings` so retention
+    policy is config-driven, not hard-coded. Acknowledged alerts are
+    purged on schedule; unacknowledged alerts NEVER expire here — those
+    represent an open analyst workflow and must be closed before
+    retention applies.
+    """
+
+    async def _go() -> dict[str, Any]:
+        from datetime import timedelta as _td
+
+        from sqlalchemy import and_, delete
+
+        from config.settings import get_settings as _get_settings
+        from db.models import Alert, AuditLog, RuleTrigger
+        from db.session import get_async_session
+
+        s = _get_settings()
+        now = datetime.now(UTC)
+        cutoffs = {
+            "audit": now - _td(days=s.audit_retention_days),
+            "alert": now - _td(days=s.alert_retention_days),
+            "trigger": now - _td(days=s.trigger_retention_days),
+        }
+
+        async with get_async_session() as db:
+            audit_result = await db.execute(delete(AuditLog).where(AuditLog.timestamp < cutoffs["audit"]))
+            # Only acknowledged alerts get purged. Open ones stay until
+            # an analyst closes them — losing those would silently drop
+            # work-in-progress.
+            alert_result = await db.execute(
+                delete(Alert).where(
+                    and_(
+                        Alert.created_at < cutoffs["alert"],
+                        Alert.acknowledged.is_(True),
+                    )
+                )
+            )
+            trigger_result = await db.execute(
+                delete(RuleTrigger).where(RuleTrigger.triggered_at < cutoffs["trigger"])
+            )
+            await db.commit()
+            return {
+                # Result.rowcount exists on the cursor-result subclass
+                # SQLAlchemy returns from an UPDATE/DELETE statement,
+                # but isn't part of the base Result type stub. Fetch it
+                # via getattr() to keep mypy strict happy.
+                "audit_logs_deleted": int(getattr(audit_result, "rowcount", 0) or 0),
+                "alerts_deleted": int(getattr(alert_result, "rowcount", 0) or 0),
+                "triggers_deleted": int(getattr(trigger_result, "rowcount", 0) or 0),
+                "audit_retention_days": s.audit_retention_days,
+                "alert_retention_days": s.alert_retention_days,
+                "trigger_retention_days": s.trigger_retention_days,
+            }
+
+    try:
+        result = _run_async(_go())
+        logger.info("celery.retention.complete", **result)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.error("celery.retention.error", error=str(exc))
+        raise
+
+
 @app.task(name="tasks.periodic.refresh_campaigns_cache")
 def refresh_campaigns_cache() -> dict[str, Any]:
     """Run campaign detection and cache the shaped list under
