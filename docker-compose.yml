@@ -232,6 +232,28 @@ services:
     networks: [fraudnet]
     restart: unless-stopped
 
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraudnet-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+    volumes:
+      - ./:/app
+    command: ["python", "-m", "ingestion.kafka_consumers.main"]
+    networks: [fraudnet]
+    restart: unless-stopped
+
 volumes:
   neo4j-data:
   neo4j-logs:
