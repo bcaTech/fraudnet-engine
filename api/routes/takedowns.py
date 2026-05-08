@@ -18,7 +18,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import selectinload
 
-from api.auth.rbac import ROLE_INVESTIGATOR, ROLE_SENIOR_INVESTIGATOR, require_role
+from typing import Annotated
+
+from api.auth.jwt import TokenClaims
+from api.auth.rbac import (
+    ROLE_INVESTIGATOR,
+    ROLE_SENIOR_INVESTIGATOR,
+    require_role,
+)
 from api.dependencies import DBSessionDep, Neo4jDep
 from api.schemas import APIResponse, Meta, ok
 from api.websocket.publisher import CH_CLUSTER_UPDATES, publish, takedown_channel
@@ -131,15 +138,12 @@ class TakedownInitiate(BaseModel):
     summary: str | None = Field(None, max_length=500)
 
 
-@router.post(
-    "",
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_role(ROLE_INVESTIGATOR))],
-)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def initiate_takedown(
     payload: TakedownInitiate,
     db: DBSessionDep,
     neo4j: Neo4jDep,
+    user: Annotated[TokenClaims, Depends(require_role(ROLE_INVESTIGATOR))],
 ) -> APIResponse[dict[str, Any]]:
     """Create a new takedown for ``cluster_id``. Validates the cluster
     exists in Neo4j, then writes the Takedown row + the default 5-step
@@ -168,7 +172,7 @@ async def initiate_takedown(
     td = Takedown(
         id=_new_id("td"),
         cluster_id=c["cluster_id"],
-        initiated_by="system",  # TODO once auth lands
+        initiated_by=user.username or user.sub,
         initiated_at=datetime.now(UTC),
         status="pending",
         wallets_frozen=0,
@@ -219,11 +223,12 @@ async def initiate_takedown(
 # ---------------------------------------------------------------------------
 
 
-@router.post(
-    "/{takedown_id}/approve",
-    dependencies=[Depends(require_role(ROLE_SENIOR_INVESTIGATOR))],
-)
-async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[dict[str, Any]]:
+@router.post("/{takedown_id}/approve")
+async def approve_takedown(
+    takedown_id: str,
+    db: DBSessionDep,
+    user: Annotated[TokenClaims, Depends(require_role(ROLE_SENIOR_INVESTIGATOR))],
+) -> APIResponse[dict[str, Any]]:
     td = (await db.execute(select(Takedown).where(Takedown.id == takedown_id))).scalar_one_or_none()
     if td is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "takedown not found")
@@ -235,7 +240,7 @@ async def approve_takedown(takedown_id: str, db: DBSessionDep) -> APIResponse[di
     if td.status == "pending":
         td.status = "approved"
         td.approved_at = datetime.now(UTC)
-        td.approved_by = "system"
+        td.approved_by = user.username or user.sub
         await db.commit()
         await db.refresh(td)
         await publish(

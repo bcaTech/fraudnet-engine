@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
 from api.auth import routes as auth_routes
+from api.middleware.audit import AuditMiddleware
 from api.routes import agents as agents_routes
 from api.routes import alerts as alerts_routes
 from api.routes import analytics as analytics_routes
@@ -64,6 +65,22 @@ async def lifespan(app: FastAPI):
         logger.error("api.schema.init.failed", error=str(exc))
         raise
 
+    # Bootstrap relational schema in dev / first boot. Production uses
+    # Alembic migrations and this is a no-op for already-existing tables.
+    if settings.environment != "production":
+        try:
+            from sqlalchemy import inspect
+
+            from db.models import Base
+            from db.session import get_async_engine
+
+            async_engine = get_async_engine()
+            async with async_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("api.relational.create_all.complete")
+        except Exception as exc:  # noqa: BLE001 — let the API boot even if Postgres is misconfigured
+            logger.warning("api.relational.create_all.failed", error=str(exc))
+
     app.state.neo4j = client
 
     # ---- WebSocket plumbing ---------------------------------------------
@@ -100,6 +117,10 @@ def create_app() -> FastAPI:
         default_response_class=ORJSONResponse,
         lifespan=lifespan,
     )
+
+    # Audit middleware lands first so request_id/principal extraction
+    # happens early and the recording covers downstream logic.
+    app.add_middleware(AuditMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

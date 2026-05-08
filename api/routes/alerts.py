@@ -13,6 +13,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 
+from typing import Annotated
+
+from api.auth.jwt import TokenClaims
 from api.auth.rbac import ROLE_ANALYST, require_role
 from api.dependencies import DBSessionDep
 from api.schemas import APIResponse, Meta, ok
@@ -109,13 +112,11 @@ async def list_alerts(
     )
 
 
-@router.post(
-    "/{alert_id}/acknowledge",
-    dependencies=[Depends(require_role(ROLE_ANALYST))],
-)
+@router.post("/{alert_id}/acknowledge")
 async def acknowledge_alert(
     alert_id: str,
     db: DBSessionDep,
+    user: Annotated[TokenClaims, Depends(require_role(ROLE_ANALYST))],
 ) -> APIResponse[dict]:
     """Mark an alert as acknowledged. Idempotent — re-acking is a no-op
     that returns the current state."""
@@ -127,7 +128,7 @@ async def acknowledge_alert(
     if not alert.acknowledged:
         alert.acknowledged = True
         alert.acknowledged_at = datetime.now(UTC)
-        alert.acknowledged_by = "system"  # TODO: replace once auth lands.
+        alert.acknowledged_by = user.username or user.sub
         await db.commit()
         await db.refresh(alert)
         await publish(CH_ALERTS, "alert.acknowledged", _alert_to_dict(alert))
@@ -135,13 +136,11 @@ async def acknowledge_alert(
     return ok(_alert_to_dict(alert))
 
 
-@router.post(
-    "/{alert_id}/dismiss",
-    dependencies=[Depends(require_role(ROLE_ANALYST))],
-)
+@router.post("/{alert_id}/dismiss")
 async def dismiss_alert(
     alert_id: str,
     db: DBSessionDep,
+    user: Annotated[TokenClaims, Depends(require_role(ROLE_ANALYST))],
     reason: str | None = Query(None, max_length=255),
 ) -> APIResponse[dict]:
     """Dismiss an alert. Persisted as ``acknowledged=true`` with the
@@ -153,7 +152,7 @@ async def dismiss_alert(
 
     alert.acknowledged = True
     alert.acknowledged_at = datetime.now(UTC)
-    alert.acknowledged_by = "system"
+    alert.acknowledged_by = user.username or user.sub
     extra = dict(alert.extra or {})
     extra["dismissed"] = True
     if reason:

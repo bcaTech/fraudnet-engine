@@ -274,6 +274,56 @@ async def operator_test(operator_id: str, db: DBSessionDep) -> APIResponse[dict[
     return ok({"operator_id": op.id, "delivered": True, "test_flag_id": flag.id})
 
 
+@router.post(
+    "/operators/{operator_id}/rotate-key",
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
+)
+async def rotate_operator_key(
+    operator_id: str, db: DBSessionDep
+) -> APIResponse[dict[str, Any]]:
+    """Mint a new API key for the operator and deactivate every prior
+    active key. The raw key is returned exactly once; only the SHA-256
+    hash is persisted."""
+
+    op = await _require_operator(db, operator_id)
+    existing = (
+        await db.execute(
+            select(APIKey).where(
+                APIKey.operator_id == op.id, APIKey.active.is_(True)
+            )
+        )
+    ).scalars().all()
+    inherited_perms = (
+        existing[0].permissions
+        if existing
+        else ["external.flags.write", "external.flags.query"]
+    )
+    for k in existing:
+        k.active = False
+    await db.flush()
+
+    raw_key = f"fnk_{secrets.token_urlsafe(32)}"
+    api_key = APIKey(
+        id=_new_id("key"),
+        operator_id=op.id,
+        key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        key_prefix=raw_key[:12],
+        permissions=inherited_perms,
+        active=True,
+    )
+    db.add(api_key)
+    await db.commit()
+
+    return ok(
+        {
+            "operator_id": op.id,
+            "api_key_one_time": raw_key,
+            "api_key_prefix": api_key.key_prefix,
+            "previous_keys_revoked": len(existing),
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared flags (internal views)
 # ---------------------------------------------------------------------------

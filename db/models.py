@@ -314,6 +314,42 @@ class EvidenceAccess(Base):
     user_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
+# ---------------------------------------------------------------------------
+# Audit
+# ---------------------------------------------------------------------------
+
+
+class AuditLog(Base):
+    """Immutable record of every protected action.
+
+    Written by :mod:`api.middleware.audit` for any HTTP method other
+    than GET/HEAD/OPTIONS. PII is redacted at the gateway before
+    reaching this row. Production retention policy applies a partition
+    + Iceberg archive cycle; for dev we keep everything.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    actor_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    actor_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    actor_kind: Mapped[str] = mapped_column(String(16), default="user")  # user | service | system
+    action: Mapped[str] = mapped_column(String(80), index=True)  # e.g. "alerts.acknowledge"
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(255))
+    status_code: Mapped[int] = mapped_column(Integer)
+    target_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extra: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
 __all__ = [
     "Base",
     "User",
@@ -331,4 +367,5 @@ __all__ = [
     "EvidencePackage",
     "EvidenceAccess",
     "APIKey",
+    "AuditLog",
 ]

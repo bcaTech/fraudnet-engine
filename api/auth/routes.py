@@ -168,3 +168,112 @@ async def create_user(payload: UserCreateRequest, db: DBSessionDep) -> APIRespon
 async def list_users(db: DBSessionDep) -> APIResponse[list[dict[str, Any]]]:
     rows = (await db.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
     return ok([_user_to_dict(u) for u in rows])
+
+
+class UserUpdateRequest(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+    email: str | None = Field(
+        None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=160
+    )
+    password: str | None = Field(None, min_length=8, max_length=200)
+
+
+@router.put(
+    "/users/{user_id}",
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
+)
+async def update_user(
+    user_id: str, payload: UserUpdateRequest, db: DBSessionDep
+) -> APIResponse[dict[str, Any]]:
+    """Admin-only: update a user's role / email / password / active flag."""
+
+    user = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+
+    if payload.role is not None:
+        if payload.role not in ALL_ROLES:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"invalid role '{payload.role}'"
+            )
+        user.role = payload.role
+    if payload.active is not None:
+        user.active = payload.active
+    if payload.email is not None:
+        user.email = payload.email
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+
+    await db.commit()
+    await db.refresh(user)
+    return ok(_user_to_dict(user))
+
+
+@router.delete(
+    "/users/{user_id}",
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
+)
+async def disable_user(
+    user_id: str, db: DBSessionDep
+) -> APIResponse[dict[str, Any]]:
+    """Soft-delete: flip the active flag rather than deleting the row.
+
+    Hard delete would orphan FK references on alerts / audit logs;
+    deactivating preserves history while the user can no longer log
+    in.
+    """
+
+    user = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    user.active = False
+    await db.commit()
+    await db.refresh(user)
+    return ok(_user_to_dict(user))
+
+
+# ---------------------------------------------------------------------------
+# Step-up auth scaffold
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/step-up",
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
+)
+async def step_up(user: CurrentUser) -> APIResponse[dict[str, Any]]:
+    """Mint a short-lived elevated token for high-risk operations.
+
+    Real implementation: require a fresh WebAuthn / TOTP factor before
+    issuing the elevated claim. For now we issue a 5-minute token with
+    a ``step_up=true`` claim that the high-risk routes can check; the
+    factor verification is left for the production rollout. Calling
+    this with an admin role is the minimum guard.
+    """
+
+    from datetime import timedelta
+
+    token, exp = create_access_token(
+        user_id=user.sub,
+        username=user.username,
+        role=user.role,
+        expires_in=timedelta(minutes=5),
+        extra={"step_up": True},
+    )
+    return ok(
+        {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_at": exp.isoformat(),
+            "step_up": True,
+            "note": (
+                "Production must require a second factor here. The current "
+                "implementation only enforces an admin role on the request."
+            ),
+        }
+    )
